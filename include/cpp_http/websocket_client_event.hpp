@@ -5,7 +5,7 @@
 
 namespace cpp_http
 {
-    enum class websocket_event
+    enum class websocket_client_event
     {
         connection_error = 0,
         connection_succeeded = 1,
@@ -21,49 +21,49 @@ namespace cpp_http
 
 namespace std
 {
-    static inline std::string to_string(cpp_http::websocket_event const event)
+    static inline std::string to_string(cpp_http::websocket_client_event const event)
     {
         switch (event)
         {
-        case cpp_http::websocket_event::connection_error:
+        case cpp_http::websocket_client_event::connection_error:
             {
                 return "connection_error";
             }
-        case cpp_http::websocket_event::connection_succeeded:
+        case cpp_http::websocket_client_event::connection_succeeded:
             {
                 return "connection_succeeded";
             }
-        case cpp_http::websocket_event::disconnection:
+        case cpp_http::websocket_client_event::disconnection:
             {
                 return "disconnection";
             }
-        case cpp_http::websocket_event::send_timed_out:
+        case cpp_http::websocket_client_event::send_timed_out:
             {
                 return "send_timed_out";
             }
-        case cpp_http::websocket_event::receive_timed_out:
+        case cpp_http::websocket_client_event::receive_timed_out:
             {
                 return "receive_timed_out";
             }
-        case cpp_http::websocket_event::send_error:
+        case cpp_http::websocket_client_event::send_error:
             {
                 return "send_error";
             }
-        case cpp_http::websocket_event::receive_error:
+        case cpp_http::websocket_client_event::receive_error:
             {
                 return "receive_error";
             }
-        case cpp_http::websocket_event::message_sent:
+        case cpp_http::websocket_client_event::message_sent:
             {
                 return "message_sent";
             }
-        case cpp_http::websocket_event::message_received:
+        case cpp_http::websocket_client_event::message_received:
             {
                 return "message_received";
             }
         default:
             {
-                return cpp_http_format::format("[invalid websocket_event value {}]", static_cast<size_t>(event));
+                return cpp_http_format::format("[invalid websocket_client_event value {}]", static_cast<size_t>(event));
             }
         }
     }

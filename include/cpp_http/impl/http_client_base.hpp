@@ -34,6 +34,7 @@ namespace cpp_http
             cpp_http_asio::ssl::stream<boost::beast::tcp_stream> _https_stream;
             boost::beast::http::request<boost::beast::http::string_body> _http_request;
             boost::beast::http::response<boost::beast::http::string_body> _http_response;
+            bool _connected = {};
             std::string _http_host_string;
             std::string _http_target_string;            
             std::string _user_agent;
@@ -80,6 +81,8 @@ namespace cpp_http
 
                 if (!callback_flag->test_and_set())
                 {
+                    _connected = true;
+                    
                     callback({});
                 }
             }
@@ -268,6 +271,11 @@ namespace cpp_http
             {
             }
 
+            bool connected() const noexcept
+            {
+                return _connected;
+            }
+
             std::string const& user_agent() const noexcept
             {
                 return _user_agent;
@@ -355,6 +363,8 @@ namespace cpp_http
 
             void disconnect()
             {
+                _connected = false;
+
                 try
                 {
                     _timer.cancel();
