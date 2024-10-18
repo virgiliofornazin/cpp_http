@@ -184,32 +184,32 @@ namespace cpp_http
         websocket_client& operator = (websocket_client&&) = delete;
 
         explicit websocket_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
-        : http_client_base(ioc, uri_protocol_is_secure, "ws", uri_host, uri_port, uri_path, default_timeout_seconds), _ws_stream(ioc), _wss_stream(ioc, _ssl)
+            : http_client_base(ioc, uri_protocol_is_secure, "ws", uri_host, uri_port, uri_path, default_timeout_seconds), _ws_stream(ioc), _wss_stream(ioc, _ssl)
         {
         }
 
         explicit websocket_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path)
-        : websocket_client(ioc, uri_protocol_is_secure, uri_host, uri_port, uri_path, {})
+            : websocket_client(ioc, uri_protocol_is_secure, uri_host, uri_port, uri_path, {})
         {
         }
 
         explicit websocket_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<size_t> default_timeout_seconds)
-        : websocket_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_seconds)
+            : websocket_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_seconds)
         {
         }
 
         explicit websocket_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port)
-        : websocket_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), {})
+            : websocket_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), {})
         {
         }
 
         explicit websocket_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<size_t> default_timeout_seconds)
-        : websocket_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_seconds)
+            : websocket_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_seconds)
         {
         }
 
         explicit websocket_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host)
-        : websocket_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), {})
+            : websocket_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), {})
         {
         }
 
