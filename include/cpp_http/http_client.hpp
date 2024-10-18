@@ -107,7 +107,7 @@ namespace cpp_http
         }
 
         http_response execute(http_request& request, std::optional<size_t> request_timeout_seconds = {})
-{
+        {
             if (request_timeout_seconds.has_value() || _default_timeout_seconds.has_value())
             {
                 return execute(std::make_shared<http_request>(request), request_timeout_seconds);
