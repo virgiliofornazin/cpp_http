@@ -6,7 +6,7 @@
 namespace cpp_http
 {
     class http_client
-		: public impl::http_client_base
+        : public impl::http_client_base
     {
     public:
         using request_callback = std::function<void(http_response::shared_ptr, std::string_view const)>;
@@ -149,9 +149,9 @@ namespace cpp_http
             
             disconnect();
 
-			http_response response;
+            http_response response;
             
-			impl::from_beast_http_response(response, _http_response);
+            impl::from_beast_http_response(response, _http_response);
 
             debug_info([&]() { return cpp_http_format::format("http sync response received:\n{}", response.to_string()); });
 
@@ -189,7 +189,7 @@ namespace cpp_http
             
             return execute(*request_ptr.get(), request_timeout_seconds);
         }
-		
+        
         void execute_async(http_request& request, request_callback callback, std::optional<size_t> request_timeout_seconds = {})
         {
             execute_async(std::make_shared<cpp_http::http_request>(request), callback, request_timeout_seconds);
@@ -214,7 +214,7 @@ namespace cpp_http
                             {
                                 request_timed_out->test_and_set();
 
-	                            disconnect();
+                                disconnect();
 
                                 callback({}, "http request execution timeout out");
                             }
@@ -265,6 +265,6 @@ namespace cpp_http
         }
         
     public:
-	    using shared_ptr = std::shared_ptr<http_client>;
+        using shared_ptr = std::shared_ptr<http_client>;
     };
 }

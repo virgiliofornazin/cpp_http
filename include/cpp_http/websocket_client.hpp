@@ -10,14 +10,14 @@
 namespace cpp_http
 {
     class websocket_client
-		: public impl::http_client_base
+        : public impl::http_client_base
     {
     public:
         using event_callback = std::function<void(websocket_event const, std::string_view const)>;
 
-	protected:
+    protected:
         boost::beast::websocket::stream<boost::beast::tcp_stream> _ws_stream;
-		boost::beast::websocket::stream<cpp_http_asio::ssl::stream<boost::beast::tcp_stream>> _wss_stream;
+        boost::beast::websocket::stream<cpp_http_asio::ssl::stream<boost::beast::tcp_stream>> _wss_stream;
         size_t _websocket_receive_timeout_seconds = {};
         size_t _websocket_send_timeout_seconds = {};
         cpp_http_timeout_time_point_type _websocket_receive_timestamp = {};
@@ -237,9 +237,9 @@ namespace cpp_http
                             {
                                 connection_timed_out->test_and_set();
 
-	                            disconnect();
+                                disconnect();
 
-								callback(websocket_event::connection_error, cpp_http_format::format("connection to {}:{} timed out", _uri_host, _uri_port_resolve));
+                                callback(websocket_event::connection_error, cpp_http_format::format("connection to {}:{} timed out", _uri_host, _uri_port_resolve));
                             }
                         }));
             }
@@ -249,17 +249,17 @@ namespace cpp_http
                 (std::string_view const error_message)
                     {
                         if (_uri_protocol_is_secure)
-						{
+                        {
                             do_websocket_handshake(error_message, query_string, _wss_stream, connection_timed_out, callback_called, callback, websocket_receive_timeout_seconds, websocket_send_timeout_seconds, timeout_seconds);
                         }
                         else
                         {
                             do_websocket_handshake(error_message, query_string, _ws_stream, connection_timed_out, callback_called, callback, websocket_receive_timeout_seconds, websocket_send_timeout_seconds, timeout_seconds);
                         }
-					});
+                    });
         }
         
     public:
-	    using shared_ptr = std::shared_ptr<websocket_client>;
+        using shared_ptr = std::shared_ptr<websocket_client>;
     };
 }
