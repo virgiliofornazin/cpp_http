@@ -3,14 +3,9 @@
 #include "config.hpp"
 #include "http_utils.inl"
 #include "../http_method.hpp"
-/*
-#include "../http_request.hpp"
-#include "../http_response.hpp"
 #include <boost/beast/core.hpp>
-#include <boost/beast/ssl.hpp>
 #include <boost/beast/http.hpp>
-#include <boost/beast/version.hpp>
-*/
+
 namespace cpp_http
 {
 	namespace impl
