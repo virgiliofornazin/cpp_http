@@ -14,8 +14,8 @@ namespace cpp_http
         receive_timed_out = 4,
         send_error = 7,
         receive_error = 8,
-        received_message = 9,
-        sent_message = 10
+        message_sent = 9,
+        message_received = 10
     };
 };
 
@@ -53,13 +53,13 @@ namespace std
             {
                 return "receive_error";
             }
-        case cpp_http::websocket_event::received_message:
+        case cpp_http::websocket_event::message_sent:
             {
-                return "received_message";
+                return "message_sent";
             }
-        case cpp_http::websocket_event::sent_message:
+        case cpp_http::websocket_event::message_received:
             {
-                return "sent_message";
+                return "message_received";
             }
         default:
             {

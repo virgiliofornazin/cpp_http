@@ -117,10 +117,10 @@ namespace cpp_http
 
             before_execute(request);
 
-            impl::to_beast_http_request(_http_request, request, *this);
+            _http_target_string = impl::to_beast_http_request(_http_request, request, *this);
 
             debug_info([&]() { return cpp_http_format::format("http sync request:\n{}", request.to_string(_uri_path)); });
-            
+                    
             _http_response = {};
 
             if (_uri_protocol_is_secure)
@@ -239,7 +239,7 @@ namespace cpp_http
 
                         before_execute(*request_ptr.get());
 
-                        impl::to_beast_http_request(_http_request, *request_ptr.get(), *this);
+                        _http_target_string = impl::to_beast_http_request(_http_request, *request_ptr.get(), *this);
 
                         debug_info([&]() { return cpp_http_format::format("http{} async request:\n{}", (_uri_protocol_is_secure ? "s" : ""), request_ptr->to_string(_uri_path)); });
 

@@ -88,7 +88,7 @@ namespace cpp_http
         }
 
         template <typename boost_beast_request_type, typename http_request_type, typename http_client_type>
-        static inline void to_beast_http_request(boost_beast_request_type& beast_request, http_request_type& request, http_client_type& client)
+        static inline std::string to_beast_http_request(boost_beast_request_type& beast_request, http_request_type& request, http_client_type& client)
         {
             auto protocol_version = 11;
             auto verb = to_beast_http_request_verb(request.method());
@@ -112,6 +112,8 @@ namespace cpp_http
             to_beast_http_request_headers(beast_request, request.headers());
 
             beast_request.body() = request.body();
+
+            return target;
         }
 
         template <typename boost_beast_response_type, typename http_response_type>

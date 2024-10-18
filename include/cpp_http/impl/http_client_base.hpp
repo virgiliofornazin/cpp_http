@@ -34,6 +34,8 @@ namespace cpp_http
             cpp_http_asio::ssl::stream<boost::beast::tcp_stream> _https_stream;
             boost::beast::http::request<boost::beast::http::string_body> _http_request;
             boost::beast::http::response<boost::beast::http::string_body> _http_response;
+            std::string _http_host_string;
+            std::string _http_target_string;            
             std::string _user_agent;
             std::string _uri;
             bool _uri_protocol_is_secure = {};
@@ -153,6 +155,8 @@ namespace cpp_http
                                 return;
                             }
 
+                            _http_host_string = http_sni_host_string(_uri_protocol_is_secure, _uri_host, _uri_port);
+
                             if (_uri_protocol_is_secure)
                             {
                                 if (timeout_seconds)
@@ -178,15 +182,13 @@ namespace cpp_http
                                                 return;
                                             }
 
-                                            auto host_string = http_sni_host_string(_uri_protocol_is_secure, _uri_host, _uri_port);
-                                    
-                                            if (!SSL_set_tlsext_host_name(_https_stream.native_handle(), host_string.c_str()))
+                                            if (!SSL_set_tlsext_host_name(_https_stream.native_handle(), _http_host_string.c_str()))
                                             {
                                                 auto ec = boost::beast::error_code(static_cast<int>(::ERR_get_error()),cpp_http_asio::error::get_ssl_category());
                                                 
                                                 if (!callback_called->test_and_set())
                                                 {
-                                                    callback(cpp_http_format::format("error on SSL setup for host name {} [{}:{}]: {}", host_string, _uri_host, _uri_port_resolve, ec.message()));
+                                                    callback(cpp_http_format::format("error on SSL setup for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()));
                                                 }
 
                                                 disconnect();
@@ -195,11 +197,11 @@ namespace cpp_http
                                             }
                                     
                                             _https_stream.async_handshake(cpp_http_asio::ssl::stream_base::client,cpp_http_asio::bind_executor(_strand, 
-                                                [this, host_string, timeout_seconds, connection_timed_out, callback_called, callback]
+                                                [this, timeout_seconds, connection_timed_out, callback_called, callback]
                                                 (boost::beast::error_code ec)
                                                     {
                                                         on_connect_completed(ec, boost::beast::get_lowest_layer(_https_stream), timeout_seconds, connection_timed_out, callback_called, callback,
-                                                            [this, ec, host_string]() { return cpp_http_format::format("error on SSL handshake for host name {} [{}:{}]: {}", host_string, _uri_host, _uri_port_resolve, ec.message()); });
+                                                            [this, ec]() { return cpp_http_format::format("error on SSL handshake for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
                                                     }));
                                         }));
                             }
@@ -217,7 +219,7 @@ namespace cpp_http
                                             boost::ignore_unused(ep);
                                             
                                             on_connect_completed(ec, _http_stream, timeout_seconds, connection_timed_out, callback_called, callback,
-                                                [this, ec]() { return cpp_http_format::format("error on connect [{}:{}]: {}", _uri_host, _uri_port_resolve, ec.message()); });
+                                                [this, ec]() { return cpp_http_format::format("error on connect for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
                                         }));
                             }
                         }));
