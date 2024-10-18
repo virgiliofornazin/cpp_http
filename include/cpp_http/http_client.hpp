@@ -69,45 +69,45 @@ namespace cpp_http
 
     public:
         http_client() = delete;
-        
+
         http_client(http_client const&) = delete;
         http_client(http_client&&) = delete;
 
         http_client& operator = (http_client const&) = delete;
         http_client& operator = (http_client&&) = delete;
-		
-		explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
-			: http_client_base(ioc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_seconds)
-		{
-		}
 
-		explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path)
-			: http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, uri_path, {})
-		{
-		}
-
-		explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<size_t> default_timeout_seconds)
-			: http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_seconds)
-		{
-		}
-
-		explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port)
-			: http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), {})
-		{
-		}
-
-		explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<size_t> default_timeout_seconds)
-			: http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_seconds)
-		{
-		}
-
-		explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host)
-        	: http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), {})
-		{
-		}
-
-		http_response execute(http_request& request, std::optional<size_t> request_timeout_seconds = {})
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
+            : http_client_base(ioc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_seconds)
         {
+        }
+
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path)
+            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, uri_path, {})
+        {
+        }
+
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<size_t> default_timeout_seconds)
+            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_seconds)
+        {
+        }
+
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port)
+            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), {})
+        {
+        }
+
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<size_t> default_timeout_seconds)
+            : http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_seconds)
+        {
+        }
+
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host)
+            : http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), {})
+        {
+        }
+
+        http_response execute(http_request& request, std::optional<size_t> request_timeout_seconds = {})
+{
             if (request_timeout_seconds.has_value() || _default_timeout_seconds.has_value())
             {
                 return execute(std::make_shared<http_request>(request), request_timeout_seconds);
