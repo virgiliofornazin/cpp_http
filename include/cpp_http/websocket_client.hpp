@@ -111,12 +111,23 @@ namespace cpp_http
         queued_message _websocket_sending_message;
         cpp_http_timeout_time_point_type _websocket_sending_timestamp = {};
         event_callback _callback;
+
+    protected:
+        virtual boost::beast::tcp_stream& beast_tcp_stream() override
+        {
+            return _uri_protocol_is_secure ? boost::beast::get_lowest_layer(_wss_stream) : boost::beast::get_lowest_layer(_ws_stream);
+        }
+
+        virtual cpp_http_asio::ssl::stream<boost::beast::tcp_stream>& asio_ssl_stream() override
+        {
+            return _wss_stream.next_layer();
+        }
     
     private:
         template <typename websocket_stream_type>
         void do_websocket_receive(websocket_stream_type& websocket_stream, std::string const& host_string, std::string const& target_string)
         {
-            websocket_stream.async_read(_http_buffer, cpp_http_asio::bind_executor(_strand, 
+            websocket_stream.async_read(_flat_buffer, cpp_http_asio::bind_executor(_strand, 
                 [this, &websocket_stream, host_string, target_string](boost::beast::error_code ec, size_t bytes_transferred)
                 {
                     boost::ignore_unused(bytes_transferred);
@@ -145,22 +156,26 @@ namespace cpp_http
 
                     _websocket_receive_timestamp = cpp_http_timeout_clock_type::now();
 
-                    _callback(websocket_client_event::message_received, boost::beast::buffers_to_string(_http_buffer.data()));
+                    auto message_received = boost::beast::buffers_to_string(_flat_buffer.data());
+
+                    _callback(websocket_client_event::message_received, message_received);
                     
-                    _http_buffer.consume(_http_buffer.size());
+                    _flat_buffer.consume(_flat_buffer.size());
 
                     do_websocket_receive(websocket_stream, host_string, target_string);
                 }));
         }
 
         template <typename websocket_stream_type, typename atomic_flag_type>
-        void do_websocket_handshake(std::string_view const error_message, http_query_string query_string, websocket_stream_type& websocket_stream, atomic_flag_type& timeout_flag, atomic_flag_type& callback_flag, std::optional<size_t> const& websocket_receive_timeout_seconds, std::optional<size_t> const& websocket_send_timeout_seconds, size_t const timeout_seconds)
+        void do_websocket_handshake(std::string_view const error_message, http_query_string query_string, websocket_stream_type& websocket_stream, atomic_flag_type& timeout_flag, atomic_flag_type& callback_called, std::optional<size_t> const& websocket_receive_timeout_seconds, std::optional<size_t> const& websocket_send_timeout_seconds, size_t const timeout_seconds)
         {
             _connected = false;
-
+            
             if (!error_message.empty() || timeout_flag->test())
             {
-                if (!callback_flag->test_and_set())
+                auto should_callback = !callback_called->test_and_set();
+
+                if (should_callback)
                 {
                     _callback(websocket_client_event::connection_error, error_message);
                 }
@@ -170,7 +185,7 @@ namespace cpp_http
                 return;
             }
 
-            _http_target_string = impl::http_encode_target({}, _uri_path, query_string);
+            _http_target_string = impl::http_encode_uri_target({}, _uri_path, query_string);
 
             websocket_stream.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::client));
             
@@ -182,12 +197,14 @@ namespace cpp_http
                     }));
             
             websocket_stream.async_handshake(_http_host_string, _http_target_string,
-                [this, &websocket_stream, websocket_receive_timeout_seconds, websocket_send_timeout_seconds, timeout_seconds, timeout_flag, callback_flag]
+                [this, &websocket_stream, websocket_receive_timeout_seconds, websocket_send_timeout_seconds, timeout_seconds, timeout_flag, callback_called]
                 (boost::beast::error_code ec)
                     {
+                        auto should_callback = !callback_called->test_and_set();
+
                         if (ec || timeout_flag->test())
                         {
-                            if (!callback_flag->test_and_set())
+                            if (should_callback)
                             {
                                 _callback(websocket_client_event::connection_error, cpp_http_format::format("error on websocket handshake [{}{}]: {}", _http_host_string, _http_target_string, ec.message()));
                             }
@@ -196,8 +213,9 @@ namespace cpp_http
                             
                             return;
                         }
-                    
-                        if (!callback_flag->test_and_set())
+
+                        // TODO bookeeping timer...
+                        if (should_callback)
                         {
                             _connected = true;
 
@@ -419,7 +437,7 @@ namespace cpp_http
         websocket_client& operator = (websocket_client&&) = delete;
 
         explicit websocket_client(cpp_http_asio::io_context& ioc, event_callback callback, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
-            : http_client_base(ioc, uri_protocol_is_secure, "ws", uri_host, uri_port, uri_path, default_timeout_seconds), _callback(callback), _ws_stream(ioc), _wss_stream(ioc, _ssl)
+            : http_client_base(ioc, uri_protocol_is_secure, "ws", uri_host, uri_port, uri_path, default_timeout_seconds), _callback(callback), _ws_stream(boost::asio::make_strand(ioc)), _wss_stream(boost::asio::make_strand(ioc), _ssl)
         {
         }
 
@@ -512,7 +530,9 @@ namespace cpp_http
                         {
                             boost::ignore_unused(ec);
 
-                            if (!callback_called->test_and_set())
+                            auto should_callback = !callback_called->test_and_set();
+
+                            if (should_callback)
                             {
                                 connection_timed_out->test_and_set();
 

@@ -131,7 +131,7 @@ namespace cpp_http
             
             ss  << std::to_string(_method) 
                 << " " 
-                << impl::http_encode_target(client_uri_path, _uri_path, _query_string) 
+                << impl::http_encode_uri_target(client_uri_path, _uri_path, _query_string) 
                 << std::endl
                 << _headers
                 << std::endl

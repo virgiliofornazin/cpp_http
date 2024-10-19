@@ -29,11 +29,7 @@ namespace cpp_http
             cpp_http_asio::ssl::context _ssl;
             cpp_http_asio::deadline_timer _timer;
             cpp_http_asio::ip::tcp::resolver _resolver;
-            boost::beast::flat_buffer _http_buffer;
-            boost::beast::tcp_stream _http_stream;
-            cpp_http_asio::ssl::stream<boost::beast::tcp_stream> _https_stream;
-            boost::beast::http::request<boost::beast::http::string_body> _http_request;
-            boost::beast::http::response<boost::beast::http::string_body> _http_response;
+            boost::beast::flat_buffer _flat_buffer;
             bool _connected = {};
             std::string _http_host_string;
             std::string _http_target_string;            
@@ -48,6 +44,15 @@ namespace cpp_http
             std::optional<size_t> _default_timeout_seconds;
 
         protected:
+            virtual boost::beast::tcp_stream& beast_tcp_stream() = 0;
+            virtual cpp_http_asio::ssl::stream<boost::beast::tcp_stream>& asio_ssl_stream() = 0; 
+            
+            virtual boost::asio::ip::tcp::socket& asio_tcp_socket()
+            {
+                return beast_tcp_stream().socket();
+            }
+            
+        protected:
             virtual void before_execute(http_request& request /* info */)
             {
             }
@@ -56,13 +61,16 @@ namespace cpp_http
             {
             }
 
-        private:
-            template <typename error_code_type, typename http_stream_type, typename atomic_flag_type, typename callback_type>
-            void on_connect_completed(error_code_type& ec, http_stream_type& http_stream, size_t const timeout_seconds, atomic_flag_type& timeout_flag, atomic_flag_type& callback_flag, callback_type& callback, debug_info_expression_generator info)
+        private:           
+
+            template <typename error_code_type, typename atomic_flag_type, typename callback_type>
+            void on_connect_completed(error_code_type& ec, size_t const timeout_seconds, atomic_flag_type& connection_timed_out, atomic_flag_type& callback_called, callback_type& callback, debug_info_expression_generator info)
             {
-                if (ec || timeout_flag->test())
+                auto should_callback = !callback_called->test_and_set();
+
+                if (ec || connection_timed_out->test())
                 {
-                    if (!callback_flag->test_and_set())
+                    if (should_callback)
                     {
                         callback(info());
                     }
@@ -74,20 +82,28 @@ namespace cpp_http
                         
                 if (timeout_seconds)
                 {
-                    http_stream.expires_never();
+                    beast_tcp_stream().expires_never();
 
                     _timer.cancel();
                 }
 
-                if (!callback_flag->test_and_set())
+                if (should_callback)
                 {
                     _connected = true;
-                    
+
                     callback({});
                 }
             }
 
         protected:
+            void throw_if_connected()
+            {
+                if (_connected)
+                {
+                    throw std::logic_error("cannot change parameters of an already estabilished connection");
+                }
+            }
+
             void update_uri()
             {
                 http_update_uri(_uri_protocol_is_secure, _uri_protocol, _uri_host, _uri_port, _uri_path, _uri, _uri_port_resolve);
@@ -118,6 +134,8 @@ namespace cpp_http
 
             void connect_async(connect_callback callback, std::optional<size_t> connection_timeout_seconds = {})
             {
+                disconnect();
+                
                 auto timeout_seconds = connection_timeout_seconds.has_value() ? connection_timeout_seconds.value_or(0) : _default_timeout_seconds.value_or(0);
                 auto callback_called = std::make_shared<cpp_http_atomic_flag>();
                 auto connection_timed_out = std::make_shared<cpp_http_atomic_flag>();
@@ -131,7 +149,9 @@ namespace cpp_http
                             {
                                 boost::ignore_unused(ec);
 
-                                if (!callback_called->test_and_set())
+                                auto should_callback = !callback_called->test_and_set();
+
+                                if (should_callback)
                                 {
                                     connection_timed_out->test_and_set();
 
@@ -142,13 +162,15 @@ namespace cpp_http
                             }));
                 }
 
-                _resolver.async_resolve(_uri_host, _uri_port_resolve,cpp_http_asio::bind_executor(_strand, 
+                _resolver.async_resolve(_uri_host, _uri_port_resolve, cpp_http_asio::bind_executor(_strand, 
                     [this, timeout_seconds, connection_timed_out, callback_called, callback]
                     (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type resolved)
                         {
                             if (ec || connection_timed_out->test())
                             {
-                                if (!callback_called->test_and_set())
+                                auto should_callback = !callback_called->test_and_set();
+
+                                if (should_callback)
                                 {
                                     callback(cpp_http_format::format("error on resolve [{}:{}]: {}", _uri_host, _uri_port_resolve, ec.message()));
                                 }
@@ -158,39 +180,43 @@ namespace cpp_http
                                 return;
                             }
 
-                            _http_host_string = http_sni_host_string(_uri_protocol_is_secure, _uri_host, _uri_port);
+                            _http_host_string = ssl_sni_host_string(_uri_protocol_is_secure, _uri_host, _uri_port);
 
-                            if (_uri_protocol_is_secure)
+                            if (timeout_seconds)
                             {
-                                if (timeout_seconds)
-                                {
-                                    boost::beast::get_lowest_layer(_https_stream).expires_after(std::chrono::seconds(timeout_seconds));
-                                }
+                                beast_tcp_stream().expires_after(std::chrono::seconds(timeout_seconds));
+                            }
 
-                                boost::beast::get_lowest_layer(_https_stream).async_connect(resolved,cpp_http_asio::bind_executor(_strand, 
-                                    [this, timeout_seconds, connection_timed_out, callback_called, callback]
-                                    (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type::endpoint_type ep)
+                            beast_tcp_stream().async_connect(resolved, cpp_http_asio::bind_executor(_strand, 
+                                [this, timeout_seconds, connection_timed_out, callback_called, callback]
+                                (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type::endpoint_type ep)
+                                    {
+                                        boost::ignore_unused(ep);
+
+                                        if (ec || connection_timed_out->test())
                                         {
-                                            boost::ignore_unused(ep);
+                                            auto should_callback = !callback_called->test_and_set();
 
-                                            if (ec || connection_timed_out->test())
+                                            if (should_callback)
                                             {
-                                                if (!callback_called->test_and_set())
-                                                {
-                                                    callback(cpp_http_format::format("error on connect [{}:{}]: {}", _uri_host, _uri_port_resolve, ec.message()));
-                                                }
-
-                                                disconnect();
-                                                
-                                                return;
+                                                callback(cpp_http_format::format("error on connect [{}:{}]: {}", _uri_host, _uri_port_resolve, ec.message()));
                                             }
 
-                                            if (!SSL_set_tlsext_host_name(_https_stream.native_handle(), _http_host_string.c_str()))
+                                            disconnect();
+                                            
+                                            return;
+                                        }
+
+                                        if (_uri_protocol_is_secure)
+                                        {
+                                            if (!SSL_set_tlsext_host_name(asio_ssl_stream().native_handle(), _http_host_string.c_str()))
                                             {
-                                                auto ec = boost::beast::error_code(static_cast<int>(::ERR_get_error()),cpp_http_asio::error::get_ssl_category());
-                                                
-                                                if (!callback_called->test_and_set())
+                                                auto should_callback = !callback_called->test_and_set();
+
+                                                if (should_callback)
                                                 {
+                                                    auto ec = boost::beast::error_code(static_cast<int>(::ERR_get_error()),cpp_http_asio::error::get_ssl_category());
+                                                
                                                     callback(cpp_http_format::format("error on SSL setup for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()));
                                                 }
 
@@ -199,32 +225,20 @@ namespace cpp_http
                                                 return;
                                             }
                                     
-                                            _https_stream.async_handshake(cpp_http_asio::ssl::stream_base::client,cpp_http_asio::bind_executor(_strand, 
+                                            asio_ssl_stream().async_handshake(cpp_http_asio::ssl::stream_base::client, cpp_http_asio::bind_executor(_strand, 
                                                 [this, timeout_seconds, connection_timed_out, callback_called, callback]
                                                 (boost::beast::error_code ec)
                                                     {
-                                                        on_connect_completed(ec, boost::beast::get_lowest_layer(_https_stream), timeout_seconds, connection_timed_out, callback_called, callback,
+                                                        on_connect_completed(ec, timeout_seconds, connection_timed_out, callback_called, callback,
                                                             [this, ec]() { return cpp_http_format::format("error on SSL handshake for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
                                                     }));
-                                        }));
-                            }
-                            else
-                            {
-                                if (timeout_seconds)
-                                {
-                                    _http_stream.expires_after(std::chrono::seconds(timeout_seconds));
-                                }
-
-                                _http_stream.async_connect(resolved,cpp_http_asio::bind_executor(_strand,  
-                                    [this, timeout_seconds, connection_timed_out, callback_called, callback]
-                                    (boost::beast::error_code ec, cpp_http_asio::ip::tcp::resolver::results_type::endpoint_type ep)
+                                        }
+                                        else
                                         {
-                                            boost::ignore_unused(ep);
-                                            
-                                            on_connect_completed(ec, _http_stream, timeout_seconds, connection_timed_out, callback_called, callback,
+                                            on_connect_completed(ec, timeout_seconds, connection_timed_out, callback_called, callback,
                                                 [this, ec]() { return cpp_http_format::format("error on connect for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
-                                        }));
-                            }
+                                        }
+                                    }));
                         }));
             }
             
@@ -240,7 +254,7 @@ namespace cpp_http
             virtual ~http_client_base() noexcept = default;
             
             explicit http_client_base(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_protocol, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
-                : _ioc(ioc), _strand(ioc), _ssl(cpp_http_asio::ssl::context::sslv23_client), _timer(ioc), _resolver(cpp_http_asio::make_strand(ioc)), _http_stream(ioc), _https_stream(ioc, _ssl), _user_agent("cpp_http/1.0")
+                : _ioc(ioc), _strand(ioc), _ssl(cpp_http_asio::ssl::context::sslv23_client), _timer(boost::asio::make_strand(ioc)), _resolver(cpp_http_asio::make_strand(ioc)), _user_agent("cpp_http/1.0")
                 , _uri_protocol_is_secure(uri_protocol_is_secure), _uri_protocol(uri_protocol), _uri_host(uri_host), _uri_port(uri_port), _uri_path(uri_path), _default_timeout_seconds(default_timeout_seconds)
             {
                 update_uri();
@@ -298,6 +312,8 @@ namespace cpp_http
 
             void set_uri_protocol_is_secure(bool const uri_protocol_is_secure)
             {
+                throw_if_connected();
+
                 _uri_protocol_is_secure = uri_protocol_is_secure;
 
                 update_uri();
@@ -310,6 +326,8 @@ namespace cpp_http
 
             void set_uri_protocol(std::string_view const uri_protocol)
             {
+                throw_if_connected();
+
                 _uri_protocol = uri_protocol;
 
                 update_uri();
@@ -322,6 +340,8 @@ namespace cpp_http
 
             void set_uri_host(std::string_view const uri_host)
             {
+                throw_if_connected();
+
                 _uri_host = uri_host;
 
                 update_uri();
@@ -334,6 +354,8 @@ namespace cpp_http
 
             void set_uri_port(std::string_view const uri_port)
             {
+                throw_if_connected();
+
                 _uri_port = uri_port;
 
                 update_uri();
@@ -346,6 +368,8 @@ namespace cpp_http
 
             void set_uri_path(std::string_view const uri_path)
             {
+                throw_if_connected();
+
                 _uri_path = uri_path;
 
                 update_uri();
@@ -358,6 +382,8 @@ namespace cpp_http
 
             void set_default_timeout_seconds(std::optional<size_t> default_timeout_seconds = {})
             {
+                throw_if_connected();
+
                 _default_timeout_seconds = default_timeout_seconds;
             }
 
@@ -373,61 +399,38 @@ namespace cpp_http
                 {
                 }
 
+                try
+                {
+                    beast_tcp_stream().expires_never();
+                }
+                catch (std::exception const&)
+                {
+                }
+                
                 if (_uri_protocol_is_secure)
                 {
                     try
                     {
-                        boost::beast::get_lowest_layer(_https_stream).expires_never();
-                    }
-                    catch (std::exception const&)
-                    {
-                    }
-
-                    try
-                    {
                         boost::beast::error_code ec;
 
-                        _https_stream.shutdown(ec);
-                    }
-                    catch (std::exception const&)
-                    {
-                    }
-
-                    try
-                    {
-                        boost::system::error_code ec;
-                        
-                        auto& socket = boost::beast::get_lowest_layer(_https_stream).socket();
-                            
-                        socket.shutdown(cpp_http_asio::ip::tcp::socket::shutdown_both, ec);
-                        socket.close(ec);
+                        asio_ssl_stream().shutdown(ec);
                     }
                     catch (std::exception const&)
                     {
                     }
                 }
-                else
-                {
-                    try
-                    {
-                        _http_stream.expires_never();
-                    }
-                    catch (std::exception const&)
-                    {
-                    }
-                    
-                    try
-                    {
-                        boost::system::error_code ec;
 
-                        auto& socket = _http_stream.socket();
-                            
-                        socket.shutdown(cpp_http_asio::ip::tcp::socket::shutdown_both, ec);
-                        socket.close(ec);
-                    }
-                    catch (std::exception const&)
-                    {
-                    }
+                try
+                {
+                    auto& socket = asio_tcp_socket();
+                        
+                    boost::system::error_code ec;
+                    
+                    socket.shutdown(cpp_http_asio::ip::tcp::socket::shutdown_both, ec);
+                    socket.close(ec);
+                }
+                catch (std::exception const&)
+                {
                 }
             }
         };

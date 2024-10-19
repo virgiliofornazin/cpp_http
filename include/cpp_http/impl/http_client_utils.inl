@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "http_utils.inl"
+#include "ssl_utils.inl"
 #include "../http_method.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -92,8 +93,8 @@ namespace cpp_http
         {
             auto protocol_version = 11;
             auto verb = to_beast_http_request_verb(request.method());
-            auto target = http_encode_target(client.uri_path(), request.uri_path(), request.query_string());
-            auto host_string = http_sni_host_string(client.uri_protocol_is_secure(), client.uri_host(), client.uri_port());
+            auto target = http_encode_uri_target(client.uri_path(), request.uri_path(), request.query_string());
+            auto host_string = ssl_sni_host_string(client.uri_protocol_is_secure(), client.uri_host(), client.uri_port());
 
             request.headers().set_value("Host", host_string);
 

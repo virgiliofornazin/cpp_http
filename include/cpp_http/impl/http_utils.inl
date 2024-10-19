@@ -1,8 +1,6 @@
 #pragma once
 
 #include "config.hpp"
-#include <string_view>
-#include <string>
 
 namespace cpp_http
 {
@@ -42,14 +40,6 @@ namespace cpp_http
             return result;
         }
 
-        static inline auto http_sni_host_string(bool const is_secure, std::string_view const host, std::string_view const port)
-        {
-            auto port_string = (port.empty()) || (!is_secure && port == "80") || (is_secure && port == "443")
-                ? std::string() : cpp_http_format::format(":{}", port);
-
-            return cpp_http_format::format("{}{}", host, port_string);
-        }
-
         static inline void http_fix_uri_path(std::string& path)
         {
             if (path.empty())
@@ -69,7 +59,7 @@ namespace cpp_http
         }
 
         template <typename http_query_string_type>
-        static inline auto http_encode_target(std::string client_uri_path, std::string request_uri_path, http_query_string_type const& query_string)
+        static inline auto http_encode_uri_target(std::string client_uri_path, std::string request_uri_path, http_query_string_type const& query_string)
         {
             http_fix_uri_path(client_uri_path);
             http_fix_uri_path(request_uri_path);
