@@ -12,10 +12,10 @@ namespace cpp_http
         disconnection = 2,
         send_timed_out = 3,
         receive_timed_out = 4,
-        send_error = 7,
-        receive_error = 8,
-        message_sent = 9,
-        message_received = 10
+        send_error = 5,
+        receive_error = 6,
+        message_sent = 7,
+        message_received = 8
     };
 };
 

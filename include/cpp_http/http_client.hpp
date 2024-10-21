@@ -18,14 +18,14 @@ namespace cpp_http
         boost::beast::http::response<boost::beast::http::string_body> _http_response;
 
     protected:
-        virtual boost::beast::tcp_stream& beast_tcp_stream() override
+        virtual boost::beast::tcp_stream* beast_tcp_stream() override
         {
-            return _uri_protocol_is_secure ? boost::beast::get_lowest_layer(_https_stream) : _http_stream;
+            return std::addressof(_uri_protocol_is_secure ? boost::beast::get_lowest_layer(_https_stream) : _http_stream);
         }
 
-        virtual cpp_http_asio::ssl::stream<boost::beast::tcp_stream>& asio_ssl_stream() override
+        virtual cpp_http_asio::ssl::stream<boost::beast::tcp_stream>* asio_ssl_stream() override
         {
-            return _https_stream;
+            return std::addressof(_https_stream);
         }
             
     protected:
@@ -34,7 +34,14 @@ namespace cpp_http
         {
             if (timeout_seconds)
             {
-                beast_tcp_stream().expires_after(std::chrono::seconds(timeout_seconds));
+                auto tcp_stream = beast_tcp_stream();
+
+                if (!tcp_stream)
+                {
+                    throw std::logic_error("tcp_stream() failed");
+                }
+
+                tcp_stream->expires_after(std::chrono::seconds(timeout_seconds));
             }
             
             boost::beast::http::async_write(http_stream, _http_request, cpp_http_asio::bind_executor(_strand, 
@@ -100,8 +107,18 @@ namespace cpp_http
         http_client& operator = (http_client const&) = delete;
         http_client& operator = (http_client&&) = delete;
 
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
+            : http_client_base(ioc, sslc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_seconds), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _sslc)
+        {
+        }
+
         explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
-            : http_client_base(ioc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_seconds), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _ssl)
+            : http_client_base(ioc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_seconds), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _sslc)
+        {
+        }
+
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path)
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, uri_path, {})
         {
         }
 
@@ -110,8 +127,18 @@ namespace cpp_http
         {
         }
 
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<size_t> default_timeout_seconds)
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_seconds)
+        {
+        }
+
         explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<size_t> default_timeout_seconds)
             : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_seconds)
+        {
+        }
+
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port)
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), {})
         {
         }
 
@@ -120,8 +147,18 @@ namespace cpp_http
         {
         }
 
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<size_t> default_timeout_seconds)
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_seconds)
+        {
+        }
+
         explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<size_t> default_timeout_seconds)
             : http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_seconds)
+        {
+        }
+
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host)
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), {})
         {
         }
 
@@ -150,7 +187,7 @@ namespace cpp_http
 
             if (_uri_protocol_is_secure)
             {
-                if (!SSL_set_tlsext_host_name(asio_ssl_stream().native_handle(), _http_host_string.c_str()))
+                if (!SSL_set_tlsext_host_name(_https_stream.native_handle(), _http_host_string.c_str()))
                 {
                     auto ec = boost::beast::error_code(static_cast<int>(::ERR_get_error()),cpp_http_asio::error::get_ssl_category());
                     
@@ -158,19 +195,21 @@ namespace cpp_http
                 }
             }
 
-            beast_tcp_stream().connect(resolved);
-
             if (_uri_protocol_is_secure)
             {
-                asio_ssl_stream().handshake(cpp_http_asio::ssl::stream_base::client);
+                boost::beast::get_lowest_layer(_https_stream).connect(resolved);
+                
+                _https_stream.handshake(cpp_http_asio::ssl::stream_base::client);
 
-                boost::beast::http::write(asio_ssl_stream(), _http_request);
-                boost::beast::http::read(asio_ssl_stream(), _flat_buffer, _http_response);
+                boost::beast::http::write(_https_stream, _http_request);
+                boost::beast::http::read(_https_stream, _flat_buffer, _http_response);
             }
             else
             {
-                boost::beast::http::write(beast_tcp_stream(), _http_request);
-                boost::beast::http::read(beast_tcp_stream(), _flat_buffer, _http_response);
+                _http_stream.connect(resolved);
+
+                boost::beast::http::write(_http_stream, _http_request);
+                boost::beast::http::read(_http_stream, _flat_buffer, _http_response);
             }
             
             disconnect();
@@ -249,7 +288,7 @@ namespace cpp_http
                         }));
             }
 
-            connect_async(
+            do_connect_async(
                 [this, request_ptr, timeout_seconds, request_timed_out, callback_called, callback]
                 (std::string_view const error_message)
                     {
@@ -275,11 +314,11 @@ namespace cpp_http
 
                         if (_uri_protocol_is_secure)
                         {
-                            do_execute_http_request(asio_ssl_stream(), timeout_seconds, request_timed_out, callback_called, callback);
+                            do_execute_http_request(_http_stream, timeout_seconds, request_timed_out, callback_called, callback);
                         }
                         else
                         {
-                            do_execute_http_request(beast_tcp_stream(), timeout_seconds, request_timed_out, callback_called, callback);
+                            do_execute_http_request(_https_stream, timeout_seconds, request_timed_out, callback_called, callback);
                         }
                     }, 0);
         }
