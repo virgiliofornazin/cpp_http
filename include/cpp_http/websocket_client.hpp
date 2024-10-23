@@ -7,7 +7,6 @@
 #include "impl/stl_headers.hpp"
 #include "websocket_message.hpp"
 #include "websocket_client_event.hpp"
-#include "websocket_message_oriented_authentication_handler.hpp"
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/websocket/ssl.hpp>
 #include <array>
