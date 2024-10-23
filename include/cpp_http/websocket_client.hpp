@@ -5,8 +5,9 @@
 #include "impl/throughput_limiter.hpp"
 #include "http_query_string.hpp"
 #include "impl/stl_headers.hpp"
-#include "websocket_message_priority.hpp"
+#include "websocket_message.hpp"
 #include "websocket_client_event.hpp"
+#include "websocket_message_oriented_authentication_handler.hpp"
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/websocket/ssl.hpp>
 #include <array>
@@ -22,95 +23,25 @@ namespace cpp_http
         using event_callback = std::function<void(websocket_client_event const, std::string_view const)>;
 
     protected:
-        struct queued_message
-        {
-            websocket_message_priority priority = websocket_message_priority::normal;
-            cpp_http_timeout_time_point_type timestamp;
-            std::string body;
-
-            queued_message() = default;
-
-            queued_message(queued_message const&) = delete;
-            queued_message(queued_message&&) = default;
-
-            queued_message& operator = (queued_message const&) = delete;
-            queued_message& operator = (queued_message&&) = default;
-
-            explicit queued_message(websocket_message_priority const priority_, cpp_http_timeout_time_point_type timestamp_, std::string&& body_)
-                : priority(priority_), timestamp(timestamp_), body(std::move(body_))
-            {
-            }
-
-            explicit queued_message(websocket_message_priority const priority_, std::string&& body_)
-                : priority(priority_), timestamp(cpp_http_timeout_clock_type::now()), body(std::move(body_))
-            {
-            }
-
-            void clear()
-            {
-                priority = websocket_message_priority::normal;
-                timestamp = {};
-                body.clear();
-            }
-
-#if __cplusplus >= 2102002L
-            auto operator <=> (queued_message const& other) const noexcept
-            {
-                return static_cast<unsigned int>(priority) <=> static_cast<unsigned int>(other.priority);
-            }
-#else /* __cplusplus >= 2102002L */
-            auto operator == (queued_message const& other) const noexcept
-            {
-                return static_cast<unsigned int>(priority) == static_cast<unsigned int>(other.priority);
-            }
-            
-            auto operator != (queued_message const& other) const noexcept
-            {
-                return static_cast<unsigned int>(priority) != static_cast<unsigned int>(other.priority);
-            }
-
-            auto operator < (queued_message const& other) const noexcept
-            {
-                return static_cast<unsigned int>(priority) < static_cast<unsigned int>(other.priority);
-            }
-
-            auto operator <= (queued_message const& other) const noexcept
-            {
-                return static_cast<unsigned int>(priority) <= static_cast<unsigned int>(other.priority);
-            }
-
-            auto operator > (queued_message const& other) const noexcept
-            {
-                return static_cast<unsigned int>(priority) > static_cast<unsigned int>(other.priority);
-            }
-
-            auto operator >= (queued_message const& other) const noexcept
-            {
-                return static_cast<unsigned int>(priority) >= static_cast<unsigned int>(other.priority);
-            }
-#endif /* __cplusplus >= 2102002L */
-        };
-
-    protected:
         boost::beast::websocket::stream<boost::beast::tcp_stream> _ws_stream;
         boost::beast::websocket::stream<cpp_http_asio::ssl::stream<boost::beast::tcp_stream>> _wss_stream;
         size_t _websocket_receive_timeout_seconds = {};
+        cpp_http_timeout_time_point_type _websocket_receive_timestamp = {};
         size_t _websocket_send_timeout_seconds = {};
+        cpp_http_timeout_time_point_type _websocket_send_timestamp = {};
+        cpp_http_timeout_time_point_type _websocket_send_initiated_timestamp = {};
+        websocket_message _websocket_send_pending_message;
+        cpp_http_atomic_flag _websocket_send_in_progress;
         cpp_http_atomic_flag _websocket_send_queued_allowed;
-        cpp_http_atomic_flag _websocket_send_busy;
         std::mutex _websocket_send_queue_mutex;
-#ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
-        std::priority_queue<queued_message> _websocket_send_queue;
-        impl::throughput_limiter _websocket_send_queue_throughput_limiter;
-#endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
 #ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
-        std::array<std::deque<queued_message>, websocket_message_priority_count> _websocket_send_queues;
+        std::array<std::deque<websocket_message>, websocket_message_priority_count> _websocket_send_queues;
         std::array<impl::throughput_limiter, websocket_message_priority_count> _websocket_send_queue_throughput_limiters = {};
 #endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
-        cpp_http_timeout_time_point_type _websocket_receive_timestamp = {};
-        cpp_http_timeout_time_point_type _websocket_send_timestamp = {};
-        queued_message _websocket_sending_message;
-        cpp_http_timeout_time_point_type _websocket_sending_timestamp = {};
+#ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
+        std::priority_queue<websocket_message> _websocket_send_queue;
+        impl::throughput_limiter _websocket_send_queue_throughput_limiter;
+#endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
         event_callback _callback;
 
     protected:
@@ -124,7 +55,7 @@ namespace cpp_http
             return std::addressof(_wss_stream.next_layer());
         }
 
-        virtual void do_start_async(http_query_string& query_string, std::optional<size_t>& connection_timeout_seconds, std::optional<size_t>& websocket_receive_timeout_seconds, std::optional<size_t>& websocket_send_timeout_seconds)
+        virtual void do_start_async(http_query_string& query_string, std::optional<size_t> const& connection_timeout_seconds, std::optional<size_t> const& websocket_receive_timeout_seconds, std::optional<size_t> const& websocket_send_timeout_seconds)
         {
             auto timeout_seconds = connection_timeout_seconds.has_value() ? connection_timeout_seconds.value_or(0) : _default_timeout_seconds.value_or(0);
             auto callback_called = std::make_shared<cpp_http_atomic_flag>(false);
@@ -271,21 +202,21 @@ namespace cpp_http
                     });
         }
         
-        void do_initialize_watchdog_timer(std::optional<size_t> const&websocket_receive_timeout_seconds, std::optional<size_t> const&websocket_send_timeout_seconds)
+        void do_initialize_watchdog_timer(std::optional<size_t> const& websocket_receive_timeout_seconds, std::optional<size_t> const& websocket_send_timeout_seconds)
         {
             _websocket_receive_timeout_seconds = websocket_receive_timeout_seconds.has_value() ? websocket_receive_timeout_seconds.value_or(0) : _default_timeout_seconds.value_or(0);
             _websocket_send_timeout_seconds = websocket_send_timeout_seconds.has_value() ? websocket_send_timeout_seconds.value_or(0) : _default_timeout_seconds.value_or(0);
-
-            _websocket_send_timestamp = {};
+            
             _websocket_receive_timestamp = {};
-
+            _websocket_send_timestamp = {};
+            
             if (_websocket_receive_timeout_seconds || _websocket_send_timeout_seconds)
             {
                 auto now = cpp_http_timeout_clock_type::now();
                 
                 _websocket_receive_timestamp = now;
                 _websocket_send_timestamp = now;
-
+            
                 do_watchdog_timer();
             }
         }
@@ -344,7 +275,9 @@ namespace cpp_http
         template <typename websocket_stream_type>
         void do_send_message(websocket_stream_type& websocket_stream, bool send_queued_after_complete)
         {
-            websocket_stream.async_write(boost::asio::buffer(_websocket_sending_message.body), boost::asio::bind_executor(_strand, 
+            _websocket_send_initiated_timestamp = cpp_http_timeout_clock_type::now();
+
+            websocket_stream.async_write(boost::asio::buffer(_websocket_send_pending_message.ref()), boost::asio::bind_executor(_strand, 
                 [this, send_queued_after_complete]
                 (boost::beast::error_code ec, size_t bytes_transferred)
                     {
@@ -361,9 +294,15 @@ namespace cpp_http
                             return;
                         }
 
+                        _websocket_send_initiated_timestamp = {};
                         _websocket_send_timestamp = cpp_http_timeout_clock_type::now();
+                        
+                        auto sent_message_body = _websocket_send_pending_message.detach();
 
-                        _callback(websocket_client_event::message_sent, _websocket_sending_message.body);
+                        _websocket_send_pending_message.clear();
+                        _websocket_send_in_progress.clear();
+
+                        _callback(websocket_client_event::message_sent, sent_message_body);
 
                         if (send_queued_after_complete)
                         {
@@ -373,7 +312,7 @@ namespace cpp_http
         }
 
         template <typename queue_type>
-        std::optional<queued_message> do_get_next_pending_message_from_queue(queue_type& queue, impl::throughput_limiter& limit)
+        std::optional<websocket_message> do_get_next_pending_message_from_queue(queue_type& queue, impl::throughput_limiter& limit)
         {
             if (queue.empty())
             {
@@ -395,7 +334,7 @@ namespace cpp_http
         }
 
 #ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
-        std::optional<queued_message> get_next_pending_message_from_queue(websocket_message_priority priority_queue)
+        std::optional<websocket_message> get_next_pending_message_from_queue(websocket_message_priority const priority_queue)
         {
             auto const priority_queue_index = static_cast<size_t>(priority_queue);
 
@@ -404,15 +343,10 @@ namespace cpp_http
 
             return do_get_next_pending_message_from_queue(websocket_send_queue, websocket_send_queue_throughput_limiter); 
         }
-#endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
 
-        std::optional<queued_message> get_next_pending_message_from_queues()
+        std::optional<websocket_message> get_next_pending_message_from_queues()
         {
-#ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
-            return do_get_next_pending_message_from_queue(_websocket_send_queue, _websocket_send_queue_throughput_limiter);
-#endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
-#ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
-            std::optional<queued_message> result;
+            std::optional<websocket_message> result;
 
             for (size_t priority_queue_index = 0; websocket_message_priority_count; ++priority_queue_index)
             {
@@ -425,44 +359,53 @@ namespace cpp_http
             }
             
             return result;
-#endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
         }
+#endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
 
-        template <typename lock_type>
-        void do_send_queued_messages(lock_type& lock)
+#ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
+        std::optional<websocket_message> get_next_pending_message_from_queue(websocket_message_priority const)
+        {
+            return do_get_next_pending_message_from_queue(_websocket_send_queue, _websocket_send_queue_throughput_limiter);
+        }
+        
+        std::optional<websocket_message> get_next_pending_message_from_queues()
+        {
+            return do_get_next_pending_message_from_queue(_websocket_send_queue, _websocket_send_queue_throughput_limiter);
+        }
+#endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
+
+        template <typename unique_lock_type>
+        void do_send_queued_messages(unique_lock_type& lock)
         {
             auto send_queued_allowed = _websocket_send_queued_allowed.test();
 
-            if (!send_queued_allowed)
             {
-                lock.unlock();
+                std::lock_guard guard(lock, std::adopt_lock);
 
-                return;
+                if (!send_queued_allowed)
+                {
+                    return;
+                }
+
+                auto send_in_progress = _websocket_send_in_progress.test_and_set();
+
+                if (send_in_progress)
+                {
+                    return;
+                }
+
+                auto pending_message = get_next_pending_message_from_queues();
+                
+                if (!pending_message)
+                {
+                    _websocket_send_pending_message.clear();
+                    _websocket_send_in_progress.clear();
+
+                    return;
+                }
+
+                _websocket_send_pending_message = std::move(*pending_message);
             }
-
-            auto sending = _websocket_send_busy.test_and_set();
-
-            if (!sending)
-            {
-                lock.unlock();
-
-                return;
-            }
-
-            auto pending_message = get_next_pending_message_from_queues();
-            
-            if (!pending_message)
-            {
-                _websocket_sending_message.clear();
-                _websocket_send_busy.clear();
-
-                return;
-            }
-
-            lock.unlock();
-
-            _websocket_send_timestamp = cpp_http_timeout_clock_type::now();
-            _websocket_sending_message = std::move(*pending_message);
 
             if (_uri_protocol_is_secure)
             {
@@ -603,42 +546,6 @@ namespace cpp_http
         {
         }
         
-#ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
-        size_t send_queue_size()
-        {
-            auto lock = std::unique_lock(_websocket_send_queue_mutex);
-
-            return _websocket_send_queue.size();
-        }
-
-        void clear_send_queues()
-        {
-            clear_send_queue();
-        }
-
-        void clear_send_queue()
-        {
-            auto lock = std::unique_lock(_websocket_send_queue_mutex);
-
-            _websocket_send_queue = {};
-        }
-
-        void set_send_queue_throughput_limit_per_interval(size_t const throughput, size_t const interval_seconds, bool const clear_counters = false)
-        {
-            _websocket_send_queue_throughput_limiter.set_throughput_limit_per_interval(throughput, interval_seconds, clear_counters);
-        }
-
-        auto& send_queue_throughput_limiter() noexcept
-        {
-            return _websocket_send_queue_throughput_limiter;
-        }
-
-        auto const& send_queue_throughput_limiter() const noexcept
-        {
-            return _websocket_send_queue_throughput_limiter;
-        }
-#endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
-
 #ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
         size_t send_queue_size()
         {
@@ -703,6 +610,42 @@ namespace cpp_http
         }
 #endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
 
+#ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
+        size_t send_queue_size()
+        {
+            auto lock = std::unique_lock(_websocket_send_queue_mutex);
+
+            return _websocket_send_queue.size();
+        }
+
+        void clear_send_queues()
+        {
+            clear_send_queue();
+        }
+
+        void clear_send_queue()
+        {
+            auto lock = std::unique_lock(_websocket_send_queue_mutex);
+
+            _websocket_send_queue = {};
+        }
+
+        void set_send_queue_throughput_limit_per_interval(size_t const throughput, size_t const interval_seconds, bool const clear_counters = false)
+        {
+            _websocket_send_queue_throughput_limiter.set_throughput_limit_per_interval(throughput, interval_seconds, clear_counters);
+        }
+
+        auto& send_queue_throughput_limiter() noexcept
+        {
+            return _websocket_send_queue_throughput_limiter;
+        }
+
+        auto const& send_queue_throughput_limiter() const noexcept
+        {
+            return _websocket_send_queue_throughput_limiter;
+        }
+#endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
+
         void start_async(event_callback callback, std::optional<size_t> connection_timeout_seconds = {}, std::optional<size_t> websocket_receive_timeout_seconds = {}, std::optional<size_t> websocket_send_timeout_seconds = {})
         {
             _callback = callback;
@@ -730,22 +673,21 @@ namespace cpp_http
         template <typename... Args>
         void send_message_with_priority_async(websocket_message_priority const priority, Args&&... args)
         {
-            queued_message pending_message(priority, std::string(std::forward<Args>(args) ...));
-            
+            websocket_message pending_message(priority, std::string(std::forward<Args>(args) ...));
+
+            auto lock = std::unique_lock(_websocket_send_queue_mutex);
+
 #ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
             auto const priority_queue_index = static_cast<size_t>(priority);
 
             auto& websocket_send_queue = _websocket_send_queues.at(priority_queue_index);
-#endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
-            
-            auto lock = std::unique_lock(_websocket_send_queue_mutex);
 
-#ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
-            _websocket_send_queue.emplace(std::move(pending_message));
-#endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
-#ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
             websocket_send_queue.emplace_back(std::move(pending_message));
 #endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
+
+#ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
+            _websocket_send_queue.emplace_back(std::move(pending_message));
+#endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
 
             do_send_queued_messages(lock);
         }
