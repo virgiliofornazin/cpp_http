@@ -138,7 +138,7 @@ namespace cpp_http
 
                             return;
                         }
-                        
+
                         if (!websocket_stream.got_text())
                         {
                             _callback(websocket_client_event::receive_error, cpp_http_format::format("websocket receive no data from [{}{}]", _http_host_string, _http_target_string));
@@ -156,29 +156,33 @@ namespace cpp_http
 
                         _flat_buffer.consume(_flat_buffer.size());
 
-                        if (_authenticated)
-                        {    
-                            _callback(websocket_client_event::message_received, message_received);
-                        }
-                        else if (has_authentication_handlers())
+                        _callback(websocket_client_event::message_received, message_received);
+
+                        if (!_authenticated)
                         {
-                            auto authentication_result = _authentication_response_message_handler(message_received);
-
-                            if (!authentication_result)
+                            if (has_authentication_handlers())
                             {
-                                _callback(websocket_client_event::receive_error, cpp_http_format::format("websocket authentication error with [{}{}]", _http_host_string, _http_target_string));
+                                auto authentication_result = _authentication_response_message_handler(message_received);
 
-                                disconnect();
+                                if (!authentication_result)
+                                {
+                                    _callback(websocket_client_event::authentication_error, cpp_http_format::format("websocket authentication error to [{}{}], authentication resoponse validation failed", _http_host_string, _http_target_string));
 
-                                _callback(websocket_client_event::disconnection, cpp_http_format::format("websocket disconnected from [{}{}]: {}", _http_host_string, _http_target_string));
-                            }
-                            else
-                            {
-                                on_websocket_authenticated();
+                                    disconnect();
+
+                                    _callback(websocket_client_event::disconnection, cpp_http_format::format("websocket disconnected from [{}{}]", _http_host_string, _http_target_string));
+                                }
+                                else
+                                {
+                                    on_websocket_authenticated(", authentication resoponse validation succeeded");
+                                }
                             }
                         }
                         
-                        do_websocket_receive(websocket_stream);
+                        if (_authenticated)
+                        {    
+                            do_websocket_receive(websocket_stream);
+                        }                        
                     }));
         }
 
@@ -256,21 +260,21 @@ namespace cpp_http
 
                             if (!authentication_needed)
                             {
-                                on_websocket_authenticated();
+                                on_websocket_authenticated(" bacause no custom authentication handler was specified");
                             }
                         }
 
-                        // do_websocket_receive(websocket_stream);
+                        do_websocket_receive(websocket_stream);
                     });
         }
         
-        void on_websocket_authenticated()
+        void on_websocket_authenticated(std::string_view const reason = {})
         {
             _authenticated = true;
 
-            _callback(websocket_client_event::authentication_succeeded, cpp_http_format::format("websocket connection assumed authenticated to [{}{}] bacause no custom authentication handler was specified", _http_host_string, _http_target_string));
+            _callback(websocket_client_event::authentication_succeeded, cpp_http_format::format("websocket connection assumed authenticated to [{}{}]{}", _http_host_string, _http_target_string, reason));
 
-            enable_send_queued_messages();
+            send_queued_messages(true);
         }
 
         void do_initialize_watchdog_timer(std::optional<size_t> const& websocket_receive_timeout_seconds, std::optional<size_t> const& websocket_send_timeout_seconds)
