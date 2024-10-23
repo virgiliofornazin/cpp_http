@@ -46,7 +46,7 @@ namespace cpp_http
             
             boost::beast::http::async_write(http_stream, _http_request, cpp_http_asio::bind_executor(_strand, 
                 [this, &http_stream, timeout_seconds, request_timed_out, callback_called, callback]
-                (boost::beast::error_code ec, size_t bytes_transferred)
+                (boost::beast::error_code ec, size_t bytes_transferred) mutable
                     {
                         boost::ignore_unused(bytes_transferred);
 
@@ -66,7 +66,7 @@ namespace cpp_http
 
                         boost::beast::http::async_read(http_stream, _flat_buffer, _http_response, cpp_http_asio::bind_executor(_strand, 
                             [this, timeout_seconds, request_timed_out, callback_called, callback]
-                            (boost::beast::error_code ec, size_t bytes_transferred)
+                            (boost::beast::error_code ec, size_t bytes_transferred) mutable
                                 {
                                     boost::ignore_unused(bytes_transferred);
 
@@ -233,14 +233,16 @@ namespace cpp_http
 
                 wait_mutex.lock();
 
-                execute_async(request_ptr, [&execute_response_ptr, &execute_error_message, &wait_mutex](http_response::shared_ptr response_ptr, std::string_view const error_message)
-                    {
-                        execute_response_ptr = response_ptr;
-                        execute_error_message = error_message;
+                execute_async(request_ptr, cpp_http_asio::bind_executor(_strand,  
+                    [&execute_response_ptr, &execute_error_message, &wait_mutex]
+                    (http_response::shared_ptr response_ptr, std::string_view const error_message) mutable
+                        {
+                            execute_response_ptr = response_ptr;
+                            execute_error_message = error_message;
 
-                        wait_mutex.unlock();
-                    }
-                    , request_timeout_seconds);
+                            wait_mutex.unlock();
+                        })
+                        , request_timeout_seconds);
 
                 wait_mutex.lock();
 
@@ -271,7 +273,7 @@ namespace cpp_http
                 _timer.expires_from_now(boost::posix_time::seconds(timeout_seconds));
                 _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
                     [this, request_timed_out, callback_called, callback]
-                    (boost::system::error_code ec)
+                    (boost::system::error_code ec) mutable
                         {
                             boost::ignore_unused(ec);
 
@@ -288,9 +290,9 @@ namespace cpp_http
                         }));
             }
 
-            do_connect_async(
+            do_connect_async(cpp_http_asio::bind_executor(_strand, 
                 [this, request_ptr, timeout_seconds, request_timed_out, callback_called, callback]
-                (std::string_view const error_message)
+                (std::string_view const error_message) mutable
                     {
                         if (!error_message.empty() || request_timed_out->test())
                         {
@@ -320,7 +322,8 @@ namespace cpp_http
                         {
                             do_execute_http_request(_https_stream, timeout_seconds, request_timed_out, callback_called, callback);
                         }
-                    }, 0);
+                    })
+                    , 0);
         }
         
     public:

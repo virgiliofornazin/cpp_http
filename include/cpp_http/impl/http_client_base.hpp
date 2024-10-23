@@ -33,18 +33,19 @@ namespace cpp_http
             cpp_http_asio::deadline_timer _timer;
             cpp_http_asio::ip::tcp::resolver _resolver;
             boost::beast::flat_buffer _flat_buffer;
-            bool _connected = {};
+            bool _connected = false;
             std::string _http_host_string;
             std::string _http_target_string;            
             std::string _user_agent;
             std::string _uri;
-            bool _uri_protocol_is_secure = {};
+            bool _uri_protocol_is_secure = false;
             std::string _uri_protocol;
             std::string _uri_host;
             std::string _uri_port;
             std::string _uri_port_resolve;
             std::string _uri_path;
             std::optional<size_t> _default_timeout_seconds;
+            bool _assume_connected_on_transport_connection_succeeded = true;
 
         protected:
             virtual boost::beast::tcp_stream* beast_tcp_stream()
@@ -111,7 +112,7 @@ namespace cpp_http
 
                 if (should_callback)
                 {
-                    _connected = true;
+                    _connected = _assume_connected_on_transport_connection_succeeded;
 
                     callback({});
                 }
@@ -202,13 +203,15 @@ namespace cpp_http
 
                 wait_mutex.lock();
 
-                do_connect_async([&connection_error_message, &wait_mutex](std::string_view const error_message)
-                    {
-                        connection_error_message = error_message;
+                do_connect_async(
+                    [&connection_error_message, &wait_mutex]
+                    (std::string_view const error_message) mutable
+                        {
+                            connection_error_message = error_message;
 
-                        wait_mutex.unlock();
-                    }
-                    , connection_timeout_seconds);
+                            wait_mutex.unlock();
+                        }
+                        , connection_timeout_seconds);
 
                 wait_mutex.lock();
 
@@ -231,7 +234,7 @@ namespace cpp_http
                     _timer.expires_from_now(boost::posix_time::seconds(timeout_seconds));
                     _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
                         [this, connection_timed_out, callback_called, callback]
-                        (boost::system::error_code ec)
+                        (boost::system::error_code ec) mutable
                             {
                                 boost::ignore_unused(ec);
 
@@ -250,7 +253,7 @@ namespace cpp_http
 
                 _resolver.async_resolve(_uri_host, _uri_port_resolve, cpp_http_asio::bind_executor(_strand, 
                     [this, timeout_seconds, connection_timed_out, callback_called, callback]
-                    (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type resolved)
+                    (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type resolved) mutable
                         {
                             if (ec || connection_timed_out->test())
                             {
@@ -289,7 +292,7 @@ namespace cpp_http
                                                 
                             tcp_stream->async_connect(resolved, cpp_http_asio::bind_executor(_strand, 
                                 [this, timeout_seconds, connection_timed_out, callback_called, callback]
-                                (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type::endpoint_type ep)
+                                (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type::endpoint_type ep) mutable
                                     {
                                         boost::ignore_unused(ep);
 
@@ -341,7 +344,7 @@ namespace cpp_http
                                     
                                             ssl_stream->async_handshake(cpp_http_asio::ssl::stream_base::client, cpp_http_asio::bind_executor(_strand, 
                                                 [this, timeout_seconds, connection_timed_out, callback_called, callback]
-                                                (boost::beast::error_code ec)
+                                                (boost::beast::error_code ec) mutable
                                                     {
                                                         on_connect_completed(ec, timeout_seconds, connection_timed_out, callback_called, callback,
                                                             [this, ec]() { return cpp_http_format::format("error on SSL handshake for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
@@ -533,7 +536,7 @@ namespace cpp_http
                 _default_timeout_seconds = default_timeout_seconds;
             }
 
-            void disconnect()
+            virtual void disconnect()
             {
                 _connected = false;
 

@@ -9,13 +9,16 @@ namespace cpp_http
     {
         connection_error = 0,
         connection_succeeded = 1,
-        disconnection = 2,
-        send_timed_out = 3,
-        receive_timed_out = 4,
-        send_error = 5,
-        receive_error = 6,
-        message_sent = 7,
-        message_received = 8
+        authentication_error = 2,
+        authentication_succeeded = 3,
+        disconnection = 4,
+        send_timed_out = 5,
+        receive_timed_out = 6,
+        heartbeat_timed_out = 7,
+        send_error = 8,
+        receive_error = 9,
+        message_sent = 10,
+        message_received = 11
     };
 };
 
@@ -33,6 +36,14 @@ namespace std
             {
                 return "connection_succeeded";
             }
+        case cpp_http::websocket_client_event::authentication_error:
+            {
+                return "authentication_error";
+            }
+        case cpp_http::websocket_client_event::authentication_succeeded:
+            {
+                return "authentication_succeeded";
+            }
         case cpp_http::websocket_client_event::disconnection:
             {
                 return "disconnection";
@@ -44,6 +55,10 @@ namespace std
         case cpp_http::websocket_client_event::receive_timed_out:
             {
                 return "receive_timed_out";
+            }
+        case cpp_http::websocket_client_event::heartbeat_timed_out:
+            {
+                return "heartbeat_timed_out";
             }
         case cpp_http::websocket_client_event::send_error:
             {
