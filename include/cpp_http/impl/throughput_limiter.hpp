@@ -21,7 +21,9 @@ namespace cpp_http
             {
                 if (!is_throughput_limit_per_interval_set())
                 {
-                    return true;
+                    ++_total_throughput;
+
+                    return false;
                 }
 
                 auto now = cpp_http_timeout_clock_type::now();
@@ -42,13 +44,15 @@ namespace cpp_http
 
                 if (result)
                 {
+                    ++_total_throughput;
+
                     if (set_if_true)
                     {
                         ++_current_interval_throughput;
                     }
                 }
 
-                return result;
+                return !result;
             }
 
             void do_fill()
