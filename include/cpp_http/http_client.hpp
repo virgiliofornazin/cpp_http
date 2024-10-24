@@ -2,6 +2,8 @@
 
 #include "impl/config.hpp"
 #include "impl/http_client_base.hpp"
+#include <chrono>
+#include <ratio>
 
 namespace cpp_http
 {
@@ -29,10 +31,10 @@ namespace cpp_http
         }
             
     protected:
-        template <typename http_stream_type, typename atomic_flag_type, typename callback_type>
-        void do_execute_http_request(http_stream_type& http_stream, size_t const timeout_seconds, atomic_flag_type& request_timed_out, atomic_flag_type& callback_called, callback_type& callback)
+        template <typename http_stream_type, typename duration_type, typename atomic_flag_type, typename callback_type>
+        void do_execute_http_request(http_stream_type& http_stream, duration_type const& timeout_interval, atomic_flag_type& request_timed_out, atomic_flag_type& callback_called, callback_type& callback)
         {
-            if (timeout_seconds)
+            if (timeout_interval.count() > 0)
             {
                 auto tcp_stream = beast_tcp_stream();
 
@@ -41,11 +43,11 @@ namespace cpp_http
                     throw std::logic_error("tcp_stream() failed");
                 }
 
-                tcp_stream->expires_after(std::chrono::seconds(timeout_seconds));
+                tcp_stream->expires_after(std::chrono::duration_cast<std::chrono::milliseconds>(timeout_interval));
             }
             
             boost::beast::http::async_write(http_stream, _http_request, cpp_http_asio::bind_executor(_strand, 
-                [this, &http_stream, timeout_seconds, request_timed_out, callback_called, callback]
+                [this, &http_stream, request_timed_out, callback_called, callback]
                 (boost::beast::error_code ec, size_t bytes_transferred) mutable
                     {
                         boost::ignore_unused(bytes_transferred);
@@ -65,7 +67,7 @@ namespace cpp_http
                         }
 
                         boost::beast::http::async_read(http_stream, _flat_buffer, _http_response, cpp_http_asio::bind_executor(_strand, 
-                            [this, timeout_seconds, request_timed_out, callback_called, callback]
+                            [this, request_timed_out, callback_called, callback]
                             (boost::beast::error_code ec, size_t bytes_transferred) mutable
                                 {
                                     boost::ignore_unused(bytes_transferred);
@@ -107,71 +109,81 @@ namespace cpp_http
         http_client& operator = (http_client const&) = delete;
         http_client& operator = (http_client&&) = delete;
 
-        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
-            : http_client_base(ioc, sslc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_seconds), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _sslc)
+        template <typename duration_type = std::chrono::milliseconds>
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<duration_type> default_timeout_interval)
+            : http_client_base(ioc, sslc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_interval), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _sslc)
         {
         }
 
-        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<size_t> default_timeout_seconds)
-            : http_client_base(ioc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_seconds), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _sslc)
+        template <typename duration_type = std::chrono::milliseconds>
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<duration_type> default_timeout_interval)
+            : http_client_base(ioc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_interval), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _sslc)
         {
         }
 
         explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path)
-            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, uri_path, {})
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, uri_path, std::optional<std::chrono::milliseconds>{})
         {
         }
 
         explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path)
-            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, uri_path, {})
+            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, uri_path, std::optional<std::chrono::milliseconds>{})
         {
         }
 
-        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<size_t> default_timeout_seconds)
-            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_seconds)
+        template <typename duration_type>
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<duration_type> default_timeout_interval)
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_interval)
         {
         }
 
-        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<size_t> default_timeout_seconds)
-            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_seconds)
+        template <typename duration_type>
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::optional<duration_type> default_timeout_interval)
+            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), default_timeout_interval)
         {
         }
 
         explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port)
-            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), {})
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), std::optional<std::chrono::milliseconds>{})
         {
         }
 
         explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port)
-            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), {})
+            : http_client(ioc, uri_protocol_is_secure, uri_host, uri_port, std::string_view(), std::optional<std::chrono::milliseconds>{})
         {
         }
 
-        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<size_t> default_timeout_seconds)
-            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_seconds)
+        template <typename duration_type>
+        explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<duration_type> default_timeout_interval)
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_interval)
         {
         }
 
-        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<size_t> default_timeout_seconds)
-            : http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_seconds)
+        template <typename duration_type>
+        explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::optional<duration_type> default_timeout_interval)
+            : http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), default_timeout_interval)
         {
         }
 
         explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host)
-            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), {})
+            : http_client(ioc, sslc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), std::optional<std::chrono::milliseconds>{})
         {
         }
 
         explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host)
-            : http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), {})
+            : http_client(ioc, uri_protocol_is_secure, uri_host, std::string_view(), std::string_view(), std::optional<std::chrono::milliseconds>{})
         {
         }
 
-        http_response execute(http_request& request, std::optional<size_t> request_timeout_seconds = {})
+        template <typename duration_type = std::chrono::milliseconds>
+        http_response execute(http_request& request, std::optional<duration_type> request_timeout_interval = {})
         {
-            if (request_timeout_seconds.has_value() || _default_timeout_seconds.has_value())
+            auto timeout_interval = std::chrono::duration_cast<std::chrono::milliseconds>(request_timeout_interval.has_value() ? 
+                request_timeout_interval.value_or(duration_type{}) : _default_timeout_interval.value_or(std::chrono::milliseconds{}));
+            
+            if (timeout_interval.count() > 0)
             {
-                return execute(std::make_shared<http_request>(request), request_timeout_seconds);
+                return execute(std::make_shared<http_request>(request), request_timeout_interval);
             }
 
             auto resolved = _resolver.resolve(_uri_host, _uri_port_resolve);
@@ -223,9 +235,13 @@ namespace cpp_http
             return response;
         }
 
-        http_response execute(http_request::shared_ptr request_ptr, std::optional<size_t> request_timeout_seconds = {})
+        template <typename duration_type = std::chrono::milliseconds>
+        http_response execute(http_request::shared_ptr request_ptr, std::optional<duration_type> request_timeout_interval = {})
         {
-            if (request_timeout_seconds.has_value() || _default_timeout_seconds.has_value())
+            auto timeout_interval = std::chrono::duration_cast<std::chrono::milliseconds>(request_timeout_interval.has_value() ? 
+                request_timeout_interval.value_or(duration_type{}) : _default_timeout_interval.value_or(std::chrono::milliseconds{}));
+            
+            if (timeout_interval.count() > 0)
             {
                 http_response::shared_ptr execute_response_ptr;
                 std::string execute_error_message;
@@ -242,7 +258,7 @@ namespace cpp_http
 
                             wait_mutex.unlock();
                         })
-                        , request_timeout_seconds);
+                        , request_timeout_interval);
 
                 wait_mutex.lock();
 
@@ -254,23 +270,27 @@ namespace cpp_http
                 throw std::runtime_error(execute_error_message);
             }
             
-            return execute(*request_ptr.get(), request_timeout_seconds);
+            return execute(*request_ptr.get(), request_timeout_interval);
         }
         
-        void execute_async(http_request& request, request_callback callback, std::optional<size_t> request_timeout_seconds = {})
+        template <typename duration_type = std::chrono::milliseconds>
+        void execute_async(http_request& request, request_callback callback, std::optional<duration_type> request_timeout_interval = {})
         {
-            execute_async(std::make_shared<cpp_http::http_request>(request), callback, request_timeout_seconds);
+            execute_async(std::make_shared<cpp_http::http_request>(request), callback, request_timeout_interval);
         }
 
-        void execute_async(http_request::shared_ptr request_ptr, request_callback callback, std::optional<size_t> request_timeout_seconds = {})
+        template <typename duration_type = std::chrono::milliseconds>
+        void execute_async(http_request::shared_ptr request_ptr, request_callback callback, std::optional<duration_type> request_timeout_interval = {})
         {
-            auto timeout_seconds = request_timeout_seconds.has_value() ? request_timeout_seconds.value_or(0) : _default_timeout_seconds.value_or(0);
+            auto timeout_interval = std::chrono::duration_cast<std::chrono::milliseconds>(request_timeout_interval.has_value() ? 
+                request_timeout_interval.value_or(duration_type{}) : _default_timeout_interval.value_or(std::chrono::milliseconds{}));
+
             auto callback_called = std::make_shared<cpp_http_atomic_flag>(false);
             auto request_timed_out = std::make_shared<cpp_http_atomic_flag>(false);
-            
-            if (timeout_seconds)
+
+            if (timeout_interval.count() > 0)
             {
-                _timer.expires_from_now(boost::posix_time::seconds(timeout_seconds));
+                _timer.expires_from_now(boost::posix_time::milliseconds(timeout_interval.count()));
                 _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
                     [this, request_timed_out, callback_called, callback]
                     (boost::system::error_code ec) mutable
@@ -291,7 +311,7 @@ namespace cpp_http
             }
 
             do_connect_async(cpp_http_asio::bind_executor(_strand, 
-                [this, request_ptr, timeout_seconds, request_timed_out, callback_called, callback]
+                [this, request_ptr, timeout_interval, request_timed_out, callback_called, callback]
                 (std::string_view const error_message) mutable
                     {
                         if (!error_message.empty() || request_timed_out->test())
@@ -316,11 +336,11 @@ namespace cpp_http
 
                         if (_uri_protocol_is_secure)
                         {
-                            do_execute_http_request(_http_stream, timeout_seconds, request_timed_out, callback_called, callback);
+                            do_execute_http_request(_http_stream, timeout_interval, request_timed_out, callback_called, callback);
                         }
                         else
                         {
-                            do_execute_http_request(_https_stream, timeout_seconds, request_timed_out, callback_called, callback);
+                            do_execute_http_request(_https_stream, timeout_interval, request_timed_out, callback_called, callback);
                         }
                     })
                     , 0);

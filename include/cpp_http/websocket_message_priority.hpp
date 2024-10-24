@@ -7,14 +7,14 @@ namespace cpp_http
 {
     enum class websocket_message_priority
     {
-        lowest = 0,
-        low = 1,
+        highest = 0,
+        high = 1,
         normal = 2,
-        high = 3,
-        highest = 4
+        low = 3,
+        lowest = 4
     };
 
-    constexpr static size_t const websocket_message_priority_max = static_cast<size_t const>(websocket_message_priority::highest);
+    constexpr static size_t const websocket_message_priority_max = static_cast<size_t const>(websocket_message_priority::lowest);
     constexpr static size_t const websocket_message_priority_count = websocket_message_priority_max + 1;
 };
 
@@ -24,25 +24,25 @@ namespace std
     {
         switch (event)
         {
-        case cpp_http::websocket_message_priority::lowest:
+        case cpp_http::websocket_message_priority::highest:
             {
-                return "lowest";
-            }
-        case cpp_http::websocket_message_priority::low:
-            {
-                return "low";
-            }
-        case cpp_http::websocket_message_priority::normal:
-            {
-                return "normal";
+                return "highest";
             }
         case cpp_http::websocket_message_priority::high:
             {
                 return "high";
             }
-        case cpp_http::websocket_message_priority::highest:
+        case cpp_http::websocket_message_priority::normal:
             {
-                return "highest";
+                return "normal";
+            }
+        case cpp_http::websocket_message_priority::low:
+            {
+                return "low";
+            }
+        case cpp_http::websocket_message_priority::lowest:
+            {
+                return "lowest";
             }
         default:
             {

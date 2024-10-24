@@ -1,7 +1,6 @@
 #pragma once
 
 #include "config.hpp"
-#include <optional>
 
 namespace cpp_http
 {
@@ -38,8 +37,8 @@ namespace cpp_http
                 }
 
                 auto now = cpp_http_timeout_clock_type::now();
-                auto current_interval_seconds = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
-                auto result = _interval_milliseconds.count() < current_interval_seconds.count();
+                auto current_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
+                auto result = _interval_milliseconds.count() < current_interval.count();
 
                 if (result)
                 {
@@ -74,8 +73,8 @@ namespace cpp_http
                 }
 
                 auto now = cpp_http_timeout_clock_type::now();
-                auto current_interval_seconds = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
-                auto result = _interval_milliseconds.count() < current_interval_seconds.count();
+                auto current_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
+                auto result = _interval_milliseconds.count() < current_interval.count();
                 
                 if (result)
                 {
@@ -128,7 +127,7 @@ namespace cpp_http
 
             bool is_throughput_limit_per_interval_set() const noexcept
             {
-                return _throughput_limit_per_interval > 0;
+                return (_interval_milliseconds.count() > 0) && (_throughput_limit_per_interval > 0);
             }
 
             bool test()
