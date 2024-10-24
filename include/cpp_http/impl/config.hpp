@@ -47,3 +47,19 @@ namespace cpp_http_format = ::fmt;
 #endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
 
 #include "stl_headers.hpp"
+
+#define CPP_HTTP_TRACE
+
+#ifdef CPP_HTTP_TRACE
+#undef CPP_HTTP_TRACE
+
+#include <iostream>
+
+template <typename expression_type>
+static inline void CPP_HTTP_TRACE(expression_type expr)
+{
+    std::cerr << expr() << std::endl;
+}
+#else // CPP_HTTP_TRACE
+#define CPP_HTTP_TRACE(...)
+#endif // CPP_HTTP_TRACE

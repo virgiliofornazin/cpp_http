@@ -35,6 +35,8 @@ namespace cpp_http
             cpp_http_asio::ip::tcp::resolver _resolver;
             boost::beast::flat_buffer _flat_buffer;
             bool _connected = false;
+            bool _connection_in_progress = false;
+            bool _assume_connected_on_transport_connection_succeeded = true;
             std::string _http_host_string;
             std::string _http_target_string;            
             std::string _user_agent;
@@ -46,8 +48,7 @@ namespace cpp_http
             std::string _uri_port_resolve;
             std::string _uri_path;
             std::optional<std::chrono::milliseconds> _default_timeout_interval;
-            bool _assume_connected_on_transport_connection_succeeded = true;
-
+            
         protected:
             virtual boost::beast::tcp_stream* beast_tcp_stream()
             {
@@ -59,7 +60,7 @@ namespace cpp_http
                 return nullptr;
             }
             
-            virtual boost::asio::ip::tcp::socket* asio_tcp_socket()
+            virtual cpp_http_asio::ip::tcp::socket* asio_tcp_socket()
             {
                 auto tcp_stream = beast_tcp_stream();
 
@@ -82,7 +83,7 @@ namespace cpp_http
 
         private:
             template <typename error_code_type, typename duration_type, typename atomic_flag_type, typename callback_type>
-            void on_connect_completed(error_code_type& ec, duration_type const timeout_interval, atomic_flag_type& connection_timed_out, atomic_flag_type& callback_called, callback_type& callback, debug_info_expression_generator info)
+            void on_connect_completed(error_code_type& ec, std::optional<duration_type> const& timeout_interval, atomic_flag_type& connection_timed_out, atomic_flag_type& callback_called, callback_type& callback, debug_info_expression_generator info)
             {
                 auto should_callback = !callback_called->test_and_set();
 
@@ -97,22 +98,16 @@ namespace cpp_http
                     
                     return;
                 }
-                        
-                if (timeout_interval.count() > 0)
+
+                if (timeout_interval && (timeout_interval->count() > 0))
                 {
-                    auto tcp_stream = beast_tcp_stream();
-
-                    if (tcp_stream)
-                    {
-                        tcp_stream->expires_never();
-                    }
-
-                    _timer.cancel();
+                    do_cancel_timer();
                 }
 
                 if (should_callback)
                 {
                     _connected = _assume_connected_on_transport_connection_succeeded;
+                    _connection_in_progress = !_connected;
 
                     callback({});
                 }
@@ -145,18 +140,6 @@ namespace cpp_http
             
             void do_shutdown_beast_tcp_stream()
             {
-                auto tcp_stream = beast_tcp_stream();
-
-                if (tcp_stream)
-                {
-                    try
-                    {
-                        tcp_stream->expires_never();
-                    }
-                    catch (std::exception const&)
-                    {
-                    }
-                }
             }
             
             void do_close_asio_ssl_stream()
@@ -197,14 +180,14 @@ namespace cpp_http
             }
 
             template <typename duration_type>
-            void do_connect(std::optional<duration_type> connection_timeout_interval = {})
+            void connect(std::optional<duration_type> connection_timeout_interval = {})
             {
                 std::string connection_error_message;
                 std::mutex wait_mutex;
 
                 wait_mutex.lock();
 
-                do_connect_async(
+                connect_async(
                     [&connection_error_message, &wait_mutex]
                     (std::string_view const error_message) mutable
                         {
@@ -223,7 +206,7 @@ namespace cpp_http
             }
 
             template <typename duration_type = std::chrono::milliseconds>
-            void do_connect_async(connect_callback callback, std::optional<duration_type> connection_timeout_interval = {})
+            void connect_async(connect_callback callback, std::optional<duration_type> connection_timeout_interval = {})
             {
                 disconnect();
                 
@@ -232,33 +215,54 @@ namespace cpp_http
 
                 auto callback_called = std::make_shared<cpp_http_atomic_flag>();
                 auto connection_timed_out = std::make_shared<cpp_http_atomic_flag>();
-                
-                if (timeout_interval.count() > 0)
+
+                do_connect_async(callback_called, connection_timed_out, timeout_interval, callback);
+            }
+
+            void do_connect_async(std::shared_ptr<cpp_http_atomic_flag>& callback_called, std::shared_ptr<cpp_http_atomic_flag>& connection_timed_out, connect_callback callback, std::optional<std::chrono::milliseconds> timeout_interval = {})
+            {
+                disconnect();
+
+                _connection_in_progress = true;
+
+                if (timeout_interval && (timeout_interval->count() > 0))
                 {
-                    _timer.expires_from_now(boost::posix_time::milliseconds(timeout_interval.count()));
-                    _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
-                        [this, connection_timed_out, callback_called, callback]
-                        (boost::system::error_code ec) mutable
+                    _strand.post(
+                        [this, connection_timed_out, callback_called, callback, timeout_interval]
+                        ()
                             {
-                                boost::ignore_unused(ec);
+                                _timer.expires_from_now(boost::posix_time::milliseconds(timeout_interval->count()));
+                                _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
+                                    [this, connection_timed_out, callback_called, callback]
+                                    (boost::system::error_code ec) mutable
+                                        {
+                                            CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "_timer.expired(connect), ec: " << ec; return ss.str(); });
 
-                                auto should_callback = !callback_called->test_and_set();
+                                            if (ec)
+                                            {
+                                                return;
+                                            }
 
-                                if (should_callback)
-                                {
-                                    connection_timed_out->test_and_set();
+                                            auto should_callback = !callback_called->test_and_set();
 
-                                    disconnect();
+                                            if (should_callback)
+                                            {
+                                                connection_timed_out->test_and_set();
 
-                                    callback(cpp_http_format::format("connection to {}:{} timed out", _uri_host, _uri_port_resolve));
-                                }
-                            }));
+                                                disconnect();
+
+                                                callback(cpp_http_format::format("connection to {}:{} timed out", _uri_host, _uri_port_resolve));
+                                            }
+                                        }));
+                            });
                 }
 
                 _resolver.async_resolve(_uri_host, _uri_port_resolve, cpp_http_asio::bind_executor(_strand, 
                     [this, timeout_interval, connection_timed_out, callback_called, callback]
                     (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type resolved) mutable
                         {
+                            CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "_resolver.async_resolve(), ec: " << ec; return ss.str(); });
+
                             if (ec || connection_timed_out->test())
                             {
                                 auto should_callback = !callback_called->test_and_set();
@@ -288,16 +292,13 @@ namespace cpp_http
 
                                 return;
                             }
-
-                            if (timeout_interval.count() > 0)
-                            {
-                                tcp_stream->expires_after(timeout_interval);
-                            }
                                                 
                             tcp_stream->async_connect(resolved, cpp_http_asio::bind_executor(_strand, 
                                 [this, timeout_interval, connection_timed_out, callback_called, callback]
                                 (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type::endpoint_type ep) mutable
                                     {
+                                        CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "tcp_stream.async_connect(), ec: " << ec; return ss.str(); });
+
                                         boost::ignore_unused(ep);
 
                                         if (ec || connection_timed_out->test())
@@ -350,6 +351,8 @@ namespace cpp_http
                                                 [this, timeout_interval, connection_timed_out, callback_called, callback]
                                                 (boost::beast::error_code ec) mutable
                                                     {
+                                                        CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "ssl_stream.async_handshake(), ec: " << ec; return ss.str(); });
+
                                                         on_connect_completed(ec, timeout_interval, connection_timed_out, callback_called, callback,
                                                             [this, ec]() { return cpp_http_format::format("error on SSL handshake for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
                                                     }));
@@ -376,7 +379,7 @@ namespace cpp_http
 
             template <typename duration_type = std::chrono::milliseconds>
             explicit http_client_base(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_protocol, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<duration_type> default_timeout_interval)
-                : _ioc(ioc), _strand(ioc), _sslc_internal(cpp_http_asio::ssl::context::sslv23_client), _sslc(sslc), _timer(boost::asio::make_strand(ioc)), _resolver(cpp_http_asio::make_strand(ioc)), _user_agent("cpp_http/1.0")
+                : _ioc(ioc), _strand(ioc), _sslc_internal(cpp_http_asio::ssl::context::sslv23_client), _sslc(sslc), _timer(cpp_http_asio::make_strand(ioc)), _resolver(cpp_http_asio::make_strand(ioc)), _user_agent("cpp_http/1.0")
                 , _uri_protocol_is_secure(uri_protocol_is_secure), _uri_protocol(uri_protocol), _uri_host(uri_host), _uri_port(uri_port), _uri_path(uri_path), _default_timeout_interval(optional_duration_cast_to_milliseconds(default_timeout_interval))
             {
                 update_uri();
@@ -384,7 +387,7 @@ namespace cpp_http
 
             template <typename duration_type = std::chrono::milliseconds>
             explicit http_client_base(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_protocol, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<duration_type> default_timeout_interval)
-                : _ioc(ioc), _strand(ioc), _sslc_internal(cpp_http_asio::ssl::context::sslv23_client), _sslc(_sslc_internal), _timer(boost::asio::make_strand(ioc)), _resolver(cpp_http_asio::make_strand(ioc)), _user_agent("cpp_http/1.0")
+                : _ioc(ioc), _strand(ioc), _sslc_internal(cpp_http_asio::ssl::context::sslv23_client), _sslc(_sslc_internal), _timer(cpp_http_asio::make_strand(ioc)), _resolver(cpp_http_asio::make_strand(ioc)), _user_agent("cpp_http/1.0")
                 , _uri_protocol_is_secure(uri_protocol_is_secure), _uri_protocol(uri_protocol), _uri_host(uri_host), _uri_port(uri_port), _uri_path(uri_path), _default_timeout_interval(optional_duration_cast_to_milliseconds(default_timeout_interval))
             {
                 update_uri();
@@ -549,6 +552,7 @@ namespace cpp_http
 
             virtual void disconnect()
             {
+                _connection_in_progress = false;
                 _connected = false;
 
                 do_cancel_timer();

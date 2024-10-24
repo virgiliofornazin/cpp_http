@@ -34,22 +34,12 @@ namespace cpp_http
         template <typename http_stream_type, typename duration_type, typename atomic_flag_type, typename callback_type>
         void do_execute_http_request(http_stream_type& http_stream, duration_type const& timeout_interval, atomic_flag_type& request_timed_out, atomic_flag_type& callback_called, callback_type& callback)
         {
-            if (timeout_interval.count() > 0)
-            {
-                auto tcp_stream = beast_tcp_stream();
-
-                if (!tcp_stream)
-                {
-                    throw std::logic_error("tcp_stream() failed");
-                }
-
-                tcp_stream->expires_after(std::chrono::duration_cast<std::chrono::milliseconds>(timeout_interval));
-            }
-            
             boost::beast::http::async_write(http_stream, _http_request, cpp_http_asio::bind_executor(_strand, 
                 [this, &http_stream, request_timed_out, callback_called, callback]
                 (boost::beast::error_code ec, size_t bytes_transferred) mutable
                     {
+                        CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "beast::async_write(http), ec: " << ec; return ss.str(); });
+                        
                         boost::ignore_unused(bytes_transferred);
 
                         if (ec || request_timed_out->test())
@@ -70,6 +60,8 @@ namespace cpp_http
                             [this, request_timed_out, callback_called, callback]
                             (boost::beast::error_code ec, size_t bytes_transferred) mutable
                                 {
+                                    CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "beast::async_read(http), ec: " << ec; return ss.str(); });
+
                                     boost::ignore_unused(bytes_transferred);
 
                                     auto should_callback = !callback_called->test_and_set();
@@ -111,13 +103,13 @@ namespace cpp_http
 
         template <typename duration_type = std::chrono::milliseconds>
         explicit http_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<duration_type> default_timeout_interval)
-            : http_client_base(ioc, sslc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_interval), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _sslc)
+            : http_client_base(ioc, sslc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_interval), _http_stream(cpp_http_asio::make_strand(ioc)), _https_stream(cpp_http_asio::make_strand(ioc), _sslc)
         {
         }
 
         template <typename duration_type = std::chrono::milliseconds>
         explicit http_client(cpp_http_asio::io_context& ioc, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<duration_type> default_timeout_interval)
-            : http_client_base(ioc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_interval), _http_stream(boost::asio::make_strand(ioc)), _https_stream(boost::asio::make_strand(ioc), _sslc)
+            : http_client_base(ioc, uri_protocol_is_secure, "http", uri_host, uri_port, uri_path, default_timeout_interval), _http_stream(cpp_http_asio::make_strand(ioc)), _https_stream(cpp_http_asio::make_strand(ioc), _sslc)
         {
         }
 
@@ -290,27 +282,37 @@ namespace cpp_http
 
             if (timeout_interval.count() > 0)
             {
-                _timer.expires_from_now(boost::posix_time::milliseconds(timeout_interval.count()));
-                _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
+                _strand.post(
                     [this, request_timed_out, callback_called, callback]
-                    (boost::system::error_code ec) mutable
+                    ()
                         {
-                            boost::ignore_unused(ec);
+                            _timer.expires_from_now(boost::posix_time::milliseconds(timeout_interval.count()));
+                            _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
+                                [this, request_timed_out, callback_called, callback]
+                                (boost::system::error_code ec) mutable
+                                    {
+                                        CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "_timer.expired(execute), ec: " << ec; return ss.str(); });
 
-                            auto should_callback = !callback_called->test_and_set();
+                                        if (ec)
+                                        {
+                                            return;
+                                        }
 
-                            if (should_callback)
-                            {
-                                request_timed_out->test_and_set();
+                                        auto should_callback = !callback_called->test_and_set();
 
-                                disconnect();
+                                        if (should_callback)
+                                        {
+                                            request_timed_out->test_and_set();
 
-                                callback({}, "http request execution timeout out");
-                            }
-                        }));
+                                            disconnect();
+
+                                            callback({}, "http request execution timeout out");
+                                        }
+                                    }));
+                        });
             }
 
-            do_connect_async(cpp_http_asio::bind_executor(_strand, 
+            do_connect_async(callback_called, request_timed_out, cpp_http_asio::bind_executor(_strand, 
                 [this, request_ptr, timeout_interval, request_timed_out, callback_called, callback]
                 (std::string_view const error_message) mutable
                     {
