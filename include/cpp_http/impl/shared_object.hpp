@@ -31,61 +31,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <atomic>
+#include "config.hpp"
+#include "stl_utils.inl"
 
 namespace cpp_http
 {
     namespace impl
     {
-        class atomic_flag
+        namespace detail
         {
-        private:
-            std::atomic_uint _flag;
+            struct shared_object_impl
+                : std::enable_shared_from_this<shared_object_impl>
+            {
+                virtual ~shared_object_impl() noexcept = default;
+            };
+        }
 
-        public:
-            atomic_flag() noexcept = default;
+        struct shared_object
+            : detail::shared_object_impl
+        {
+            std::shared_ptr<shared_object> shared_from_this()
+            {
+                return shared_from(this);
+            }
             
-            atomic_flag(atomic_flag const&) = delete;
-            atomic_flag(atomic_flag&&) = delete;
+            std::shared_ptr<shared_object const> shared_from_this() const
+            {
+                return shared_from(this);
+            }
+
+            std::weak_ptr<shared_object> weak_from_this()
+            {
+                return weak_from(this);
+            }
             
-            atomic_flag& operator = (atomic_flag const&) = delete;
-            atomic_flag& operator = (atomic_flag&&) = delete;
-
-            explicit atomic_flag(bool const value) noexcept
-                : _flag(value ? 1 : 0)
+            std::weak_ptr<shared_object const> weak_from_this() const
             {
-            }
-
-            ~atomic_flag() noexcept = default;
-
-            void clear(std::memory_order const order = std::memory_order_seq_cst) volatile noexcept
-            {
-                _flag.store(0, order);
-            }
-
-            void clear(std::memory_order const order = std::memory_order_seq_cst) noexcept
-            {
-                _flag.store(0, order);
-            }
-
-            bool test_and_set(std::memory_order const order = std::memory_order_seq_cst) volatile noexcept
-            {
-                return _flag.fetch_add(1, order) > 0;
-            }
-
-            bool test_and_set(std::memory_order const order = std::memory_order_seq_cst) noexcept
-            {
-                return _flag.fetch_add(1, order) > 0;
-            }
-
-            bool test(std::memory_order const order = std::memory_order_seq_cst) volatile noexcept
-            {
-                return _flag.load(order) > 0;
-            }
-
-            bool test(std::memory_order const order = std::memory_order_seq_cst) noexcept
-            {
-                return _flag.load(order) > 0;
+                return weak_from(this);
             }
         };
     }

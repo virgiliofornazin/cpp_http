@@ -1,5 +1,4 @@
-BSD 3-Clause License
-
+/*
 cpp_http library version 1.0.1
 
 Copyright (c) 2024, Virgilio Alexandre Fornazin
@@ -28,3 +27,17 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+#pragma once
+
+namespace cpp_http
+{
+    namespace impl
+    {
+        static inline char const* library_version() noexcept
+        {
+            return "1.0.1";
+        }
+    }
+}

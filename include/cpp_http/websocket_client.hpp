@@ -1,4 +1,6 @@
 /*
+cpp_http library version 1.0.1
+
 Copyright (c) 2024, Virgilio Alexandre Fornazin
 
 Redistribution and use in source and binary forms, with or without
@@ -43,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <numeric>
 
 namespace cpp_http
-{    
+{
     class websocket_client
         : public impl::http_client_base
     {
@@ -83,12 +85,12 @@ namespace cpp_http
         heartbeat_request_message_generator _heartbeat_request_message_generator;
 
     protected:
-        virtual boost::beast::tcp_stream* beast_tcp_stream() override
+        virtual boost::beast::tcp_stream* beast_tcp_stream() noexcept override
         {
             return std::addressof(_uri_protocol_is_secure ? boost::beast::get_lowest_layer(_wss_stream) : boost::beast::get_lowest_layer(_ws_stream));
         }
 
-        virtual cpp_http_asio::ssl::stream<boost::beast::tcp_stream>* asio_ssl_stream() override
+        virtual cpp_http_asio::ssl::stream<boost::beast::tcp_stream>* asio_ssl_stream() noexcept override
         {
             return std::addressof(_wss_stream.next_layer());
         }
@@ -109,6 +111,8 @@ namespace cpp_http
         {
             disable_send_queued_messages();
 
+            auto self = shared_from_this();
+
             auto timeout_interval = std::chrono::duration_cast<std::chrono::milliseconds>(connection_timeout_interval.has_value() ?
                 connection_timeout_interval.value_or(connection_timeout_duration_type{}) : _default_timeout_interval.value_or(std::chrono::milliseconds{}));
 
@@ -118,12 +122,12 @@ namespace cpp_http
             if (timeout_interval.count() > 0)
             {
                 _strand.dispatch(
-                    [this, connection_timed_out, callback_called, timeout_interval]
+                    [this, self, connection_timed_out, callback_called, timeout_interval]
                     ()
                         {
                             _timer.expires_from_now(boost::posix_time::milliseconds(timeout_interval.count()));
                             _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
-                                [this, connection_timed_out, callback_called]
+                                [this, self, connection_timed_out, callback_called]
                                 (boost::system::error_code ec) mutable
                                     {
                                         cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "_timer.expired(start), ec: " << ec; return ss.str(); });
@@ -148,7 +152,7 @@ namespace cpp_http
             }
 
             do_connect_async(callback_called, connection_timed_out, cpp_http_asio::bind_executor(_strand, 
-                [this, query_string, websocket_receive_timeout_interval, websocket_send_timeout_interval, connection_timed_out, callback_called]
+                [this, self, query_string, websocket_receive_timeout_interval, websocket_send_timeout_interval, connection_timed_out, callback_called]
                 (std::string_view const error_message) mutable
                     {
                         if (_uri_protocol_is_secure)
@@ -170,8 +174,10 @@ namespace cpp_http
                 return;
             }
 
+            auto self = shared_from_this();
+
             websocket_stream->async_read(_flat_buffer, cpp_http_asio::bind_executor(_strand, 
-                [this, websocket_stream]
+                [this, self, websocket_stream]
                 (boost::beast::error_code ec, size_t bytes_transferred) mutable
                     {
                         cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "websocket_stream.async_read(), ec: " << ec; return ss.str(); });
@@ -254,17 +260,24 @@ namespace cpp_http
 
             _http_target_string = impl::http_encode_uri_target({}, _uri_path, query_string);
 
+            auto self = shared_from_this();
+
             websocket_stream.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::client));
             
             websocket_stream.set_option(boost::beast::websocket::stream_base::decorator(
-                [this]
+                [this, self]
                 (boost::beast::websocket::request_type& websocket_request) mutable
                     {
                         websocket_request.set(boost::beast::http::field::user_agent, user_agent());
                     }));
+
+            if (!_connected)
+            {
+                return;
+            }
             
             websocket_stream.async_handshake(_http_host_string, _http_target_string, cpp_http_asio::bind_executor(_strand,
-                [this, &websocket_stream, websocket_receive_timeout_interval, websocket_send_timeout_interval, timeout_flag, callback_called]
+                [this, self, &websocket_stream, websocket_receive_timeout_interval, websocket_send_timeout_interval, timeout_flag, callback_called]
                 (boost::beast::error_code ec) mutable
                     {
                         cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "websocket_stream::async_handshake(), ec: " << ec; return ss.str(); });
@@ -373,98 +386,107 @@ namespace cpp_http
 
         void do_watchdog_timer(std::chrono::milliseconds const& timer_timeout_interval, std::chrono::milliseconds const& timer_interval = {})
         {
-            if (_connected)
+            if (!_connected)
             {
-                _strand.dispatch(
-                    [this, timer_timeout_interval, timer_interval]
-                    ()
-                        {
-                            auto expires_interval = timer_interval.count() > 0 ? timer_interval.count() : timer_timeout_interval.count();
+                return;
+            }
 
-                            _timer.expires_from_now(boost::posix_time::milliseconds(expires_interval));
-                            _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
-                                [this, timer_timeout_interval, expires_interval]
-                                (boost::system::error_code ec) mutable
+            auto self = shared_from_this();
+             
+            _strand.dispatch(
+                [this, self, timer_timeout_interval, timer_interval]
+                ()
+                    {
+                        auto expires_interval = timer_interval.count() > 0 ? timer_interval.count() : timer_timeout_interval.count();
+
+                        _timer.expires_from_now(boost::posix_time::milliseconds(expires_interval));
+                        _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
+                            [this, self, timer_timeout_interval, expires_interval]
+                            (boost::system::error_code ec) mutable
+                                {
+                                    if (!_connected)
                                     {
-                                        cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "_timer.async_wait(watchdog " << expires_interval << "), ec: " << ec; return ss.str(); });
+                                        return;
+                                    }
+                                    
+                                    cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "_timer.async_wait(watchdog " << expires_interval << "), ec: " << ec; return ss.str(); });
 
-                                        if (ec)
+                                    if (ec)
+                                    {
+                                        return;
+                                    }
+
+                                    auto now = cpp_http_timeout_clock_type::now();
+
+                                    if (_websocket_receive_timeout_interval.count() > 0)
+                                    {
+                                        auto last_receive_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _websocket_receive_timestamp);
+
+                                        if (_websocket_receive_timeout_interval.count() < last_receive_interval.count())
                                         {
+                                            _callback(websocket_client_event::receive_timed_out, cpp_http_format::format("websocket receive timed out from [{}{}]", _http_host_string, _http_target_string));
+
+                                            disconnect();
+
+                                            _callback(websocket_client_event::disconnection, cpp_http_format::format("websocket disconnected from [{}{}]", _http_host_string, _http_target_string));
+
                                             return;
                                         }
+                                    }
 
-                                        auto now = cpp_http_timeout_clock_type::now();
+                                    if ((_websocket_send_initiated_timestamp.time_since_epoch().count() > 0) && (_websocket_send_timeout_interval.count() > 0))
+                                    {
+                                        auto last_send_initiated_interval = std::chrono::duration_cast<std::chrono::seconds>(now - _websocket_send_initiated_timestamp);
 
-                                        if (_websocket_receive_timeout_interval.count() > 0)
+                                        if ((_websocket_send_initiated_timestamp.time_since_epoch().count() > 0) && (_websocket_send_timeout_interval.count() < last_send_initiated_interval.count()))
                                         {
-                                            auto last_receive_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _websocket_receive_timestamp);
+                                            _callback(websocket_client_event::send_timed_out, cpp_http_format::format("websocket send timed out from [{}{}]", _http_host_string, _http_target_string));
 
-                                            if (_websocket_receive_timeout_interval.count() < last_receive_interval.count())
+                                            disconnect();
+
+                                            _callback(websocket_client_event::disconnection, cpp_http_format::format("websocket disconnected from [{}{}]", _http_host_string, _http_target_string));
+
+                                            return;
+                                        }
+                                    }
+
+                                    auto sent_heartbeat = false;
+                                    auto sent_any_message = false;
+                                    auto has_queued_messages = false;
+
+                                    if (has_heartbeat_handlers())
+                                    {
+                                        auto last_heartbeat_considered_timestamp = std::max(std::max(_websocket_receive_timestamp, _websocket_send_timestamp), _heartbeat_timestamp);
+                                        auto last_heartbeat_operation_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_heartbeat_considered_timestamp);
+
+                                        if (_heartbeat_interval.count() < last_heartbeat_operation_interval.count())
+                                        {
+                                            auto heartbeat_request_message = _heartbeat_request_message_generator();
+
+                                            if (!heartbeat_request_message.empty())
                                             {
-                                                _callback(websocket_client_event::receive_timed_out, cpp_http_format::format("websocket receive timed out from [{}{}]", _http_host_string, _http_target_string));
+                                                _heartbeat_timestamp = now;
 
-                                                disconnect();
+                                                send_message_with_priority_async(websocket_message_priority::lowest, heartbeat_request_message);
 
-                                                _callback(websocket_client_event::disconnection, cpp_http_format::format("websocket disconnected from [{}{}]", _http_host_string, _http_target_string));
-
-                                                return;
+                                                sent_heartbeat = true;
                                             }
                                         }
+                                    }
 
-                                        if ((_websocket_send_initiated_timestamp.time_since_epoch().count() > 0) && (_websocket_send_timeout_interval.count() > 0))
+                                    if (!sent_heartbeat)
+                                    {
+                                        sent_any_message = send_queued_messages();
+
+                                        if (!sent_any_message)
                                         {
-                                            auto last_send_initiated_interval = std::chrono::duration_cast<std::chrono::seconds>(now - _websocket_send_initiated_timestamp);
-
-                                            if ((_websocket_send_initiated_timestamp.time_since_epoch().count() > 0) && (_websocket_send_timeout_interval.count() < last_send_initiated_interval.count()))
-                                            {
-                                                _callback(websocket_client_event::send_timed_out, cpp_http_format::format("websocket send timed out from [{}{}]", _http_host_string, _http_target_string));
-
-                                                disconnect();
-
-                                                _callback(websocket_client_event::disconnection, cpp_http_format::format("websocket disconnected from [{}{}]", _http_host_string, _http_target_string));
-
-                                                return;
-                                            }
+                                            has_queued_messages = !send_queue_empty();
                                         }
+                                    }
 
-                                        auto sent_heartbeat = false;
-                                        auto sent_any_message = false;
-                                        auto has_queued_messages = false;
-
-                                        if (has_heartbeat_handlers())
-                                        {
-                                            auto last_heartbeat_considered_timestamp = std::max(std::max(_websocket_receive_timestamp, _websocket_send_timestamp), _heartbeat_timestamp);
-                                            auto last_heartbeat_operation_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_heartbeat_considered_timestamp);
-
-                                            if (_heartbeat_interval.count() < last_heartbeat_operation_interval.count())
-                                            {
-                                                auto heartbeat_request_message = _heartbeat_request_message_generator();
-
-                                                if (!heartbeat_request_message.empty())
-                                                {
-                                                    _heartbeat_timestamp = now;
-
-                                                    send_message_with_priority_async(websocket_message_priority::lowest, heartbeat_request_message);
-
-                                                    sent_heartbeat = true;
-                                                }
-                                            }
-                                        }
-
-                                        if (!sent_heartbeat)
-                                        {
-                                            sent_any_message = send_queued_messages();
-
-                                            if (!sent_any_message)
-                                            {
-                                                has_queued_messages = !send_queue_empty();
-                                            }
-                                        }
-
-                                        do_watchdog_timer(timer_timeout_interval, std::chrono::milliseconds(!sent_any_message && !sent_heartbeat && has_queued_messages ? 10 : 0));
-                                    }));
-                        });
-            }
+                                    do_watchdog_timer(timer_timeout_interval, std::chrono::milliseconds(!sent_any_message && !sent_heartbeat && has_queued_messages ? 10 : 0));
+                                }));
+                    });
         }
 
         void do_websocket_send_pending_message(bool const continue_sending_queued_messages_if_allowed)
@@ -487,14 +509,16 @@ namespace cpp_http
                 return;
             }
 
+            auto self = shared_from_this();
+            
             _strand.dispatch(
-                [this, websocket_stream, continue_sending_queued_messages_if_allowed]
+                [this, self, websocket_stream, continue_sending_queued_messages_if_allowed]
                 ()
                     {
                         _websocket_send_initiated_timestamp = cpp_http_timeout_clock_type::now();
 
                         websocket_stream->async_write(cpp_http_asio::buffer(_websocket_send_pending_message.ref()), cpp_http_asio::bind_executor(_strand, 
-                            [this, continue_sending_queued_messages_if_allowed]
+                            [this, self, continue_sending_queued_messages_if_allowed]
                             (boost::beast::error_code ec, size_t bytes_transferred) mutable
                                 {
                                     cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "websocket_stream.async_write(), ec: " << ec; return ss.str(); });
@@ -644,6 +668,11 @@ namespace cpp_http
 
         websocket_client& operator = (websocket_client const&) = delete;
         websocket_client& operator = (websocket_client&&) = delete;
+
+        virtual ~websocket_client() noexcept override
+        {
+            disconnect();
+        }
 
         template <typename duration_type>
         explicit websocket_client(cpp_http_asio::io_context& ioc, cpp_http_asio::ssl::context& sslc, event_callback callback, bool const uri_protocol_is_secure, std::string_view const uri_host, std::string_view const uri_port, std::string_view const uri_path, std::optional<duration_type> default_timeout_interval)
@@ -1104,7 +1133,7 @@ namespace cpp_http
             return do_send_queued_messages(lock);
         }
 
-        virtual void disconnect() override
+        virtual void disconnect() noexcept override
         {
             _authenticated = false;
 

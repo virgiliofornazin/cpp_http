@@ -1,4 +1,6 @@
 /*
+cpp_http library version 1.0.1
+
 Copyright (c) 2024, Virgilio Alexandre Fornazin
 
 Redistribution and use in source and binary forms, with or without
@@ -44,6 +46,42 @@ namespace cpp_http
             }
 
             return {};
+        }
+
+        template <typename base_type>
+        inline std::shared_ptr<base_type> shared_from_base_type(std::enable_shared_from_this<base_type>* base) 
+        {
+            return base->shared_from_this();
+        }
+
+        template <typename base_type>
+        inline std::shared_ptr<const base_type> shared_from_base_type(std::enable_shared_from_this<base_type> const* base) 
+        {
+            return base->shared_from_this();
+        }
+
+        template <typename current_type>
+        inline std::shared_ptr<current_type> shared_from(current_type* current) 
+        {
+            return std::dynamic_pointer_cast<current_type>(shared_from_base_type(current));
+        }
+
+        template <typename base_type>
+        inline std::weak_ptr<base_type> weak_from_base_type(std::enable_shared_from_this<base_type>* base) 
+        {
+            return base->weak_from_this();
+        }
+
+        template <typename base_type>
+        inline std::weak_ptr<const base_type> weak_from_base_type(std::enable_shared_from_this<base_type> const* base) 
+        {
+            return base->weak_from_this();
+        }
+
+        template <typename current_type>
+        inline std::weak_ptr<current_type> weak_from(current_type* current) 
+        {
+            return std::dynamic_pointer_cast<current_type>(weak_from_base_type(current).lock());
         }
     }
 }

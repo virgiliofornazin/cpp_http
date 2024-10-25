@@ -1,4 +1,6 @@
 /*
+cpp_http library version 1.0.1
+
 Copyright (c) 2024, Virgilio Alexandre Fornazin
 
 Redistribution and use in source and binary forms, with or without
@@ -76,3 +78,4 @@ namespace cpp_http_format = ::fmt;
 #endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
 
 #include "stl_headers.hpp"
+#include "library_version.hpp"

@@ -1,4 +1,6 @@
 /*
+cpp_http library version 1.0.1
+
 Copyright (c) 2024, Virgilio Alexandre Fornazin
 
 Redistribution and use in source and binary forms, with or without
@@ -32,7 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "config.hpp"
 
 #ifdef CPP_HTTP_TRACE
-#undef CPP_HTTP_TRACE
+
 #include <iostream>
 
 template <typename expression_type>
@@ -40,10 +42,13 @@ static inline void cpp_hpp_diagnostic_trace(expression_type expr)
 {
    std::cerr << expr() << std::endl;
 }
-#else // cpp_hpp_diagnostic_trace
+
+#else // CPP_HTTP_TRACE
+
 template <typename expression_type>
 static inline void cpp_hpp_diagnostic_trace(expression_type expr)
 {
    auto _ = expr();
 }
-#endif // cpp_hpp_diagnostic_trace
+
+#endif // CPP_HTTP_TRACE
