@@ -29,31 +29,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string_view>
-#include <string>
-#include <cstdint>
-#include <exception>
-#include <stdexcept>
-#include <optional>
-#include <chrono>
-#include <atomic>
-#include <memory>
-#include <ostream>
-#include <sstream>
-#include <iterator>
-#include <algorithm>
-#include <functional>
-#include <vector>
-#include <queue>
-#ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
-#include <deque>
-#endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
-using cpp_http_timeout_clock_type = std::chrono::steady_clock;
-using cpp_http_timeout_time_point_type = typename cpp_http_timeout_clock_type::time_point;
+#include "config.hpp"
 
-#if __cplusplus >= 202002L
-using cpp_http_atomic_flag = std::atomic_flag;
-#else /* __cplusplus >= 202002L */
-#include "atomic_flag.hpp"
-using cpp_http_atomic_flag = cpp_http::impl::atomic_flag;
-#endif /* __cplusplus >= 202002L */
+namespace cpp_http
+{
+    namespace impl
+    {
+        template <typename duration_type>
+        static inline std::optional<std::chrono::milliseconds> optional_duration_cast_to_milliseconds(std::optional<duration_type> const& optional_duration)
+        {
+            if (optional_duration.has_value())
+            {
+                return std::chrono::duration_cast<std::chrono::milliseconds>(*optional_duration);
+            }
+
+            return {};
+        }
+    }
+}

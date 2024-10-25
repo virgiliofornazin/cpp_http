@@ -29,31 +29,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string_view>
-#include <string>
-#include <cstdint>
-#include <exception>
-#include <stdexcept>
-#include <optional>
-#include <chrono>
-#include <atomic>
-#include <memory>
-#include <ostream>
-#include <sstream>
-#include <iterator>
-#include <algorithm>
-#include <functional>
-#include <vector>
-#include <queue>
-#ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
-#include <deque>
-#endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
-using cpp_http_timeout_clock_type = std::chrono::steady_clock;
-using cpp_http_timeout_time_point_type = typename cpp_http_timeout_clock_type::time_point;
+#include "config.hpp"
 
-#if __cplusplus >= 202002L
-using cpp_http_atomic_flag = std::atomic_flag;
-#else /* __cplusplus >= 202002L */
-#include "atomic_flag.hpp"
-using cpp_http_atomic_flag = cpp_http::impl::atomic_flag;
-#endif /* __cplusplus >= 202002L */
+#ifdef CPP_HTTP_TRACE
+#undef CPP_HTTP_TRACE
+#include <iostream>
+
+template <typename expression_type>
+static inline void cpp_hpp_diagnostic_trace(expression_type expr)
+{
+   std::cerr << expr() << std::endl;
+}
+#else // cpp_hpp_diagnostic_trace
+template <typename expression_type>
+static inline void cpp_hpp_diagnostic_trace(expression_type expr)
+{
+   auto _ = expr();
+}
+#endif // cpp_hpp_diagnostic_trace

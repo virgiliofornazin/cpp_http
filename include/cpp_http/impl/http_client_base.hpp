@@ -1,16 +1,43 @@
+/*
+Copyright (c) 2024, Virgilio Alexandre Fornazin
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
 #pragma once
 
 #include "config.hpp"
 #include "http_client_utils.inl"
 #include "../http_request.hpp"
 #include "../http_response.hpp"
-#include "stl_utils.hpp"
+#include "stl_utils.inl"
+#include "diagnostics.inl"
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/ssl.hpp>
-#include <chrono>
-#include <functional>
-#include <stdexcept>
 
 namespace cpp_http
 {
@@ -227,7 +254,7 @@ namespace cpp_http
 
                 if (timeout_interval && (timeout_interval->count() > 0))
                 {
-                    _strand.post(
+                    _strand.dispatch(
                         [this, connection_timed_out, callback_called, callback, timeout_interval]
                         ()
                             {
@@ -236,7 +263,7 @@ namespace cpp_http
                                     [this, connection_timed_out, callback_called, callback]
                                     (boost::system::error_code ec) mutable
                                         {
-                                            CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "_timer.expired(connect), ec: " << ec; return ss.str(); });
+                                            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "_timer.expired(connect), ec: " << ec; return ss.str(); });
 
                                             if (ec)
                                             {
@@ -257,113 +284,118 @@ namespace cpp_http
                             });
                 }
 
-                _resolver.async_resolve(_uri_host, _uri_port_resolve, cpp_http_asio::bind_executor(_strand, 
+                _strand.dispatch(
                     [this, timeout_interval, connection_timed_out, callback_called, callback]
-                    (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type resolved) mutable
-                        {
-                            CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "_resolver.async_resolve(), ec: " << ec; return ss.str(); });
-
-                            if (ec || connection_timed_out->test())
-                            {
-                                auto should_callback = !callback_called->test_and_set();
-
-                                if (should_callback)
+                    ()
+                    {
+                        _resolver.async_resolve(_uri_host, _uri_port_resolve, cpp_http_asio::bind_executor(_strand, 
+                            [this, timeout_interval, connection_timed_out, callback_called, callback]
+                            (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type resolved) mutable
                                 {
-                                    callback(cpp_http_format::format("error on resolve [{}:{}]: {}", _uri_host, _uri_port_resolve, ec.message()));
-                                }
+                                    cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "_resolver.async_resolve(), ec: " << ec; return ss.str(); });
 
-                                disconnect();
-                                
-                                return;
-                            }
-
-                            _http_host_string = ssl_sni_host_string(_uri_protocol_is_secure, _uri_host, _uri_port);
-
-                            auto tcp_stream = beast_tcp_stream();
-
-                            if (!tcp_stream)
-                            {
-                                auto should_callback = !callback_called->test_and_set();
-
-                                if (should_callback)
-                                {
-                                    callback("internal error : tcp_stream() failed");
-                                }
-
-                                return;
-                            }
-                                                
-                            tcp_stream->async_connect(resolved, cpp_http_asio::bind_executor(_strand, 
-                                [this, timeout_interval, connection_timed_out, callback_called, callback]
-                                (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type::endpoint_type ep) mutable
+                                    if (ec || connection_timed_out->test())
                                     {
-                                        CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "tcp_stream.async_connect(), ec: " << ec; return ss.str(); });
+                                        auto should_callback = !callback_called->test_and_set();
 
-                                        boost::ignore_unused(ep);
-
-                                        if (ec || connection_timed_out->test())
+                                        if (should_callback)
                                         {
-                                            auto should_callback = !callback_called->test_and_set();
-
-                                            if (should_callback)
-                                            {
-                                                callback(cpp_http_format::format("error on connect [{}:{}]: {}", _uri_host, _uri_port_resolve, ec.message()));
-                                            }
-
-                                            disconnect();
-                                            
-                                            return;
+                                            callback(cpp_http_format::format("error on resolve [{}:{}]: {}", _uri_host, _uri_port_resolve, ec.message()));
                                         }
 
-                                        if (_uri_protocol_is_secure)
+                                        disconnect();
+                                        
+                                        return;
+                                    }
+
+                                    _http_host_string = ssl_sni_host_string(_uri_protocol_is_secure, _uri_host, _uri_port);
+
+                                    auto tcp_stream = beast_tcp_stream();
+
+                                    if (!tcp_stream)
+                                    {
+                                        auto should_callback = !callback_called->test_and_set();
+
+                                        if (should_callback)
                                         {
-                                            auto ssl_stream = asio_ssl_stream();
+                                            callback("internal error : tcp_stream() failed");
+                                        }
 
-                                            if (!ssl_stream)
+                                        return;
+                                    }
+                                                        
+                                    tcp_stream->async_connect(resolved, cpp_http_asio::bind_executor(_strand, 
+                                        [this, timeout_interval, connection_timed_out, callback_called, callback]
+                                        (boost::beast::error_code ec,cpp_http_asio::ip::tcp::resolver::results_type::endpoint_type ep) mutable
                                             {
-                                                auto should_callback = !callback_called->test_and_set();
+                                                cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "tcp_stream.async_connect(), ec: " << ec; return ss.str(); });
 
-                                                if (should_callback)
+                                                boost::ignore_unused(ep);
+
+                                                if (ec || connection_timed_out->test())
                                                 {
-                                                    callback("internal error : asio_ssl_stream() failed");
-                                                }
+                                                    auto should_callback = !callback_called->test_and_set();
 
-                                                return;
-                                            }
-
-                                            if (!SSL_set_tlsext_host_name(ssl_stream->native_handle(), _http_host_string.c_str()))
-                                            {
-                                                auto should_callback = !callback_called->test_and_set();
-
-                                                if (should_callback)
-                                                {
-                                                    auto ec = boost::beast::error_code(static_cast<int>(::ERR_get_error()),cpp_http_asio::error::get_ssl_category());
-                                                
-                                                    callback(cpp_http_format::format("error on SSL setup for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()));
-                                                }
-
-                                                disconnect();
-                                                
-                                                return;
-                                            }
-                                    
-                                            ssl_stream->async_handshake(cpp_http_asio::ssl::stream_base::client, cpp_http_asio::bind_executor(_strand, 
-                                                [this, timeout_interval, connection_timed_out, callback_called, callback]
-                                                (boost::beast::error_code ec) mutable
+                                                    if (should_callback)
                                                     {
-                                                        CPP_HTTP_TRACE([&]() { std::stringstream ss; ss << "ssl_stream.async_handshake(), ec: " << ec; return ss.str(); });
+                                                        callback(cpp_http_format::format("error on connect [{}:{}]: {}", _uri_host, _uri_port_resolve, ec.message()));
+                                                    }
 
-                                                        on_connect_completed(ec, timeout_interval, connection_timed_out, callback_called, callback,
-                                                            [this, ec]() { return cpp_http_format::format("error on SSL handshake for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
-                                                    }));
-                                        }
-                                        else
-                                        {
-                                            on_connect_completed(ec, timeout_interval, connection_timed_out, callback_called, callback,
-                                                [this, ec]() { return cpp_http_format::format("error on connect for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
-                                        }
-                                    }));
-                        }));
+                                                    disconnect();
+                                                    
+                                                    return;
+                                                }
+
+                                                if (_uri_protocol_is_secure)
+                                                {
+                                                    auto ssl_stream = asio_ssl_stream();
+
+                                                    if (!ssl_stream)
+                                                    {
+                                                        auto should_callback = !callback_called->test_and_set();
+
+                                                        if (should_callback)
+                                                        {
+                                                            callback("internal error : asio_ssl_stream() failed");
+                                                        }
+
+                                                        return;
+                                                    }
+
+                                                    if (!SSL_set_tlsext_host_name(ssl_stream->native_handle(), _http_host_string.c_str()))
+                                                    {
+                                                        auto should_callback = !callback_called->test_and_set();
+
+                                                        if (should_callback)
+                                                        {
+                                                            auto ec = boost::beast::error_code(static_cast<int>(::ERR_get_error()),cpp_http_asio::error::get_ssl_category());
+                                                        
+                                                            callback(cpp_http_format::format("error on SSL setup for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()));
+                                                        }
+
+                                                        disconnect();
+                                                        
+                                                        return;
+                                                    }
+                                            
+                                                    ssl_stream->async_handshake(cpp_http_asio::ssl::stream_base::client, cpp_http_asio::bind_executor(_strand, 
+                                                        [this, timeout_interval, connection_timed_out, callback_called, callback]
+                                                        (boost::beast::error_code ec) mutable
+                                                            {
+                                                                cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "ssl_stream.async_handshake(), ec: " << ec; return ss.str(); });
+
+                                                                on_connect_completed(ec, timeout_interval, connection_timed_out, callback_called, callback,
+                                                                    [this, ec]() { return cpp_http_format::format("error on SSL handshake for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
+                                                            }));
+                                                }
+                                                else
+                                                {
+                                                    on_connect_completed(ec, timeout_interval, connection_timed_out, callback_called, callback,
+                                                        [this, ec]() { return cpp_http_format::format("error on connect for host name {} [{}:{}]: {}", _http_host_string, _uri_host, _uri_port_resolve, ec.message()); });
+                                                }
+                                            }));
+                                }));
+                    });
             }
             
         public:
