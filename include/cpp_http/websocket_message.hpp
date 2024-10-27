@@ -40,7 +40,7 @@ namespace cpp_http
     {
     private:
         websocket_message_priority _priority = websocket_message_priority::normal;
-        cpp_http_timeout_time_point_type _timestamp;
+        cpp_http::timeout_time_point _timestamp;
         std::string _body;
 
     public:
@@ -53,26 +53,26 @@ namespace cpp_http
         websocket_message& operator = (websocket_message&&) = default;
 
         template <typename body_type>
-        explicit websocket_message(websocket_message_priority const priority, cpp_http_timeout_time_point_type timestamp, body_type&& body)
+        explicit websocket_message(websocket_message_priority const priority, cpp_http::timeout_time_point timestamp, body_type&& body)
             : _priority(priority), _timestamp(timestamp), _body(std::forward<body_type>(body))
         {
         }
 
         template <typename body_type>
         explicit websocket_message(websocket_message_priority const priority, body_type&& body)
-            : _priority(priority), _timestamp(cpp_http_timeout_clock_type::now()), _body(std::forward<body_type>(body))
+            : _priority(priority), _timestamp(cpp_http::timeout_clock::now()), _body(std::forward<body_type>(body))
         {
         }
 
         template <typename body_type>
-        explicit websocket_message(cpp_http_timeout_time_point_type timestamp, body_type&& body)
+        explicit websocket_message(cpp_http::timeout_time_point timestamp, body_type&& body)
             : _priority(websocket_message_priority::normal), _timestamp(timestamp), _body(std::move(body))
         {
         }
 
         template <typename body_type>
         explicit websocket_message(body_type&& body)
-            : _priority(websocket_message_priority::normal), _timestamp(cpp_http_timeout_clock_type::now()), _body(std::move(body))
+            : _priority(websocket_message_priority::normal), _timestamp(cpp_http::timeout_clock::now()), _body(std::move(body))
         {
         }
 
@@ -81,7 +81,7 @@ namespace cpp_http
             return _priority;
         }
 
-        cpp_http_timeout_time_point_type const& timestamp() const noexcept
+        cpp_http::timeout_time_point const& timestamp() const noexcept
         {
             return _timestamp;
         }

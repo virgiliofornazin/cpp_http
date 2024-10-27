@@ -40,12 +40,12 @@ namespace cpp_http
     private:
         std::chrono::milliseconds _interval_milliseconds;
         size_t _throughput_limit_per_interval = 0;
-        cpp_http_timeout_time_point_type _current_interval_started_at;
+        cpp_http::timeout_time_point _current_interval_started_at;
         size_t _current_interval_throughput = 0;
         size_t _total_throughput = 0;
 
     private:
-        void do_clear(cpp_http_timeout_time_point_type const current_interval_started_at, bool const reset_total)
+        void do_clear(cpp_http::timeout_time_point const current_interval_started_at, bool const reset_total)
         {                
             _current_interval_throughput = 0;
             _current_interval_started_at = current_interval_started_at;
@@ -65,7 +65,7 @@ namespace cpp_http
                 return false;
             }
 
-            auto now = cpp_http_timeout_clock_type::now();
+            auto now = cpp_http::timeout_clock::now();
             auto current_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
             auto result = _interval_milliseconds.count() < current_interval.count();
 
@@ -107,7 +107,7 @@ namespace cpp_http
                 return;
             }
 
-            auto now = cpp_http_timeout_clock_type::now();
+            auto now = cpp_http::timeout_clock::now();
             auto current_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
             auto result = _interval_milliseconds.count() < current_interval.count();
 

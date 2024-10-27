@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "impl/config.hpp"
 #include "impl/http_client_base.hpp"
+#include "impl/stl_headers.hpp"
 
 namespace cpp_http
 {
@@ -61,8 +62,8 @@ namespace cpp_http
         }
             
     protected:
-        template <typename http_stream_type, typename duration_type, typename atomic_flag_type, typename callback_type>
-        void do_execute_http_request(http_stream_type& http_stream, duration_type const& timeout_interval, atomic_flag_type& request_timed_out, atomic_flag_type& callback_called, callback_type& callback)
+        template <typename http_stream_type, typename duration_type, typename callback_type>
+        void do_execute_http_request(http_stream_type& http_stream, duration_type const& timeout_interval, std::shared_ptr<cpp_http::atomic_flag>& callback_called, callback_type& callback)
         {
             if (!_connected)
             {
@@ -72,23 +73,23 @@ namespace cpp_http
             auto self = shared_from_this();
 
             _strand.dispatch(
-                [this, self, &http_stream, request_timed_out, callback_called, callback]
+                [this, self, &http_stream, callback_called, callback]
                 ()
                     {
-                        if (!_connected || request_timed_out->test())
+                        if (!_connected)
                         {
                             return;
                         }
 
                         boost::beast::http::async_write(http_stream, _http_request, cpp_http_asio::bind_executor(_strand, 
-                            [this, self, &http_stream, request_timed_out, callback_called, callback]
+                            [this, self, &http_stream, callback_called, callback]
                             (boost::beast::error_code ec, size_t bytes_transferred) mutable
                                 {
                                     cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "beast::async_write(http), ec: " << ec; return ss.str(); });
                                     
                                     boost::ignore_unused(bytes_transferred);
 
-                                    if (ec || request_timed_out->test())
+                                    if (ec)
                                     {
                                         auto should_callback = !callback_called->test_and_set();
 
@@ -108,7 +109,7 @@ namespace cpp_http
                                     }
 
                                     boost::beast::http::async_read(http_stream, _flat_buffer, _http_response, cpp_http_asio::bind_executor(_strand, 
-                                        [this, self, request_timed_out, callback_called, callback]
+                                        [this, self, callback_called, callback]
                                         (boost::beast::error_code ec, size_t bytes_transferred) mutable
                                             {
                                                 cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "beast::async_read(http), ec: " << ec; return ss.str(); });
@@ -119,7 +120,7 @@ namespace cpp_http
 
                                                 disconnect();
                                                     
-                                                if (ec || request_timed_out->test())
+                                                if (ec)
                                                 {
                                                     if (should_callback)
                                                     {
@@ -328,51 +329,33 @@ namespace cpp_http
         template <typename duration_type = std::chrono::milliseconds>
         void execute_async(http_request::shared_ptr request_ptr, request_callback callback, std::optional<duration_type> request_timeout_interval = {})
         {
+            auto tcp_stream = beast_tcp_stream();
+
+            if (!tcp_stream)
+            {
+                callback({}, "internal error : tcp_stream() failed");
+
+                return;
+            }
+
             auto self = shared_from_this();
 
             auto timeout_interval = std::chrono::duration_cast<std::chrono::milliseconds>(request_timeout_interval.has_value() ? 
                 request_timeout_interval.value_or(duration_type{}) : _default_timeout_interval.value_or(std::chrono::milliseconds{}));
 
-            auto callback_called = std::make_shared<cpp_http_atomic_flag>(false);
-            auto request_timed_out = std::make_shared<cpp_http_atomic_flag>(false);
+            auto callback_called = std::make_shared<cpp_http::atomic_flag>(false);
 
             if (timeout_interval.count() > 0)
             {
-                _strand.dispatch(
-                    [this, self, request_timed_out, callback_called, callback, timeout_interval]
-                    ()
-                        {
-                            _timer.expires_from_now(boost::posix_time::milliseconds(timeout_interval.count()));
-                            _timer.async_wait(cpp_http_asio::bind_executor(_strand, 
-                                [this, self, request_timed_out, callback_called, callback]
-                                (boost::system::error_code ec) mutable
-                                    {
-                                        cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "_timer.expired(execute), ec: " << ec; return ss.str(); });
-
-                                        if (ec)
-                                        {
-                                            return;
-                                        }
-
-                                        auto should_callback = !callback_called->test_and_set();
-
-                                        if (should_callback)
-                                        {
-                                            request_timed_out->test_and_set();
-
-                                            disconnect();
-
-                                            callback({}, "http request execution timeout out");
-                                        }
-                                    }));
-                        });
+                tcp_stream->expires_never();
+                tcp_stream->expires_after(timeout_interval);
             }
 
-            do_connect_async<http_client>(callback_called, request_timed_out, cpp_http_asio::bind_executor(_strand, 
-                [this, self, request_ptr, timeout_interval, request_timed_out, callback_called, callback]
+            do_connect_async<http_client>(callback_called, cpp_http_asio::bind_executor(_strand, 
+                [this, self, request_ptr, timeout_interval, callback_called, callback]
                 (std::string_view const error_message) mutable
                     {
-                        if (!error_message.empty() || request_timed_out->test())
+                        if (!error_message.empty())
                         {
                             auto should_callback = !callback_called->test_and_set();
 
@@ -394,11 +377,11 @@ namespace cpp_http
 
                         if (_uri_protocol_is_secure)
                         {
-                            do_execute_http_request(_https_stream, timeout_interval, request_timed_out, callback_called, callback);
+                            do_execute_http_request(_https_stream, timeout_interval, callback_called, callback);
                         }
                         else
                         {
-                            do_execute_http_request(_http_stream, timeout_interval, request_timed_out, callback_called, callback);
+                            do_execute_http_request(_http_stream, timeout_interval, callback_called, callback);
                         }
                     }));
         }
