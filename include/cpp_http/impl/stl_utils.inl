@@ -60,6 +60,12 @@ namespace cpp_http
             return base->shared_from_this();
         }
 
+        template <typename returning_type, typename current_type>
+        inline std::shared_ptr<returning_type> shared_from(current_type* current) 
+        {
+            return std::dynamic_pointer_cast<returning_type>(shared_from_base_type(current));
+        }
+
         template <typename current_type>
         inline std::shared_ptr<current_type> shared_from(current_type* current) 
         {
@@ -76,6 +82,12 @@ namespace cpp_http
         inline std::weak_ptr<const base_type> weak_from_base_type(std::enable_shared_from_this<base_type> const* base) 
         {
             return base->weak_from_this();
+        }
+
+        template <typename returning_type, typename current_type>
+        inline std::weak_ptr<returning_type> weak_from(current_type* current) 
+        {
+            return std::dynamic_pointer_cast<returning_type>(weak_from_base_type(current).lock());
         }
 
         template <typename current_type>

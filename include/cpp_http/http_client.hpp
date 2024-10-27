@@ -38,6 +38,7 @@ namespace cpp_http
 {
     class http_client
         : public impl::http_client_base
+        , public std::enable_shared_from_this<http_client>
     {
     public:
         using request_callback = std::function<void(http_response::shared_ptr, std::string_view const)>;
@@ -367,7 +368,7 @@ namespace cpp_http
                         });
             }
 
-            do_connect_async(callback_called, request_timed_out, cpp_http_asio::bind_executor(_strand, 
+            do_connect_async<http_client>(callback_called, request_timed_out, cpp_http_asio::bind_executor(_strand, 
                 [this, self, request_ptr, timeout_interval, request_timed_out, callback_called, callback]
                 (std::string_view const error_message) mutable
                     {

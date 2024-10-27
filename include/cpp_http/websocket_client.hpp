@@ -48,6 +48,7 @@ namespace cpp_http
 {
     class websocket_client
         : public impl::http_client_base
+        , public std::enable_shared_from_this<websocket_client>
     {
     public:
         using event_callback = std::function<void(websocket_client_event const, std::string_view const)>;
@@ -151,7 +152,7 @@ namespace cpp_http
                         });
             }
 
-            do_connect_async(callback_called, connection_timed_out, cpp_http_asio::bind_executor(_strand, 
+            do_connect_async<websocket_client>(callback_called, connection_timed_out, cpp_http_asio::bind_executor(_strand, 
                 [this, self, query_string, websocket_receive_timeout_interval, websocket_send_timeout_interval, connection_timed_out, callback_called]
                 (std::string_view const error_message) mutable
                     {
@@ -271,7 +272,7 @@ namespace cpp_http
                         websocket_request.set(boost::beast::http::field::user_agent, user_agent());
                     }));
 
-            if (!_connected)
+            if (!_connection_in_progress)
             {
                 return;
             }

@@ -19,7 +19,6 @@ namespace cpp_http
     namespace impl
     {
         class http_client_base
-            : public shared_object
         {
         protected:
             using connect_callback = std::function<void(std::string_view const)>;
@@ -143,6 +142,18 @@ namespace cpp_http
             
             void do_shutdown_beast_tcp_stream() noexcept
             {
+                auto tcp_stream = beast_tcp_stream();
+
+                if (tcp_stream)
+                {
+                    try
+                    {
+                        tcp_stream->expires_after(std::chrono::milliseconds(1));
+                    }
+                    catch (std::exception const&)
+                    {
+                    }
+                }    
             }
             
             void do_close_asio_ssl_stream() noexcept
@@ -182,7 +193,7 @@ namespace cpp_http
                 }
             }
 
-            template <typename duration_type>
+            template <typename current_type, typename duration_type = std::chrono::milliseconds>
             void connect(std::optional<duration_type> connection_timeout_interval = {})
             {
                 std::string connection_error_message;
@@ -190,7 +201,7 @@ namespace cpp_http
 
                 wait_mutex.lock();
 
-                connect_async(
+                connect_async<current_type>(
                     [&connection_error_message, &wait_mutex]
                     (std::string_view const error_message) mutable
                         {
@@ -208,7 +219,7 @@ namespace cpp_http
                 }
             }
 
-            template <typename duration_type = std::chrono::milliseconds>
+            template <typename current_type, typename duration_type = std::chrono::milliseconds>
             void connect_async(connect_callback callback, std::optional<duration_type> connection_timeout_interval = {})
             {
                 disconnect();
@@ -219,16 +230,17 @@ namespace cpp_http
                 auto callback_called = std::make_shared<cpp_http_atomic_flag>();
                 auto connection_timed_out = std::make_shared<cpp_http_atomic_flag>();
 
-                do_connect_async(callback_called, connection_timed_out, callback, timeout_interval);
+                do_connect_async<current_type>(callback_called, connection_timed_out, callback, timeout_interval);
             }
 
+            template <typename current_type>
             void do_connect_async(std::shared_ptr<cpp_http_atomic_flag>& callback_called, std::shared_ptr<cpp_http_atomic_flag>& connection_timed_out, connect_callback callback, std::optional<std::chrono::milliseconds> timeout_interval = {})
             {
                 disconnect();
 
                 _connection_in_progress = true;
 
-                auto self = shared_from_this();
+                auto self = dynamic_cast<current_type*>(this)->shared_from_this();
 
                 if (timeout_interval && (timeout_interval->count() > 0))
                 {
@@ -567,11 +579,18 @@ namespace cpp_http
 
             virtual void disconnect() noexcept
             {
+                auto connected = false;
+
                 _connection_in_progress = false;
-                _connected = false;
+                std::swap(_connected, connected);
 
                 do_cancel_timer();
-                do_shutdown_beast_tcp_stream();
+                
+                if (connected)
+                {
+                    do_shutdown_beast_tcp_stream();
+                }
+
                 do_close_asio_ssl_stream();
                 do_close_asio_tcp_socket();
             }
