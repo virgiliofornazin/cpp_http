@@ -1,5 +1,5 @@
 /*
-cpp_http library version 1.0.1
+cpp_http library version 1.0.2
 
 Copyright (c) 2024, Virgilio Alexandre Fornazin
 
@@ -37,7 +37,7 @@ namespace cpp_http
     {
         static inline char const* library_version() noexcept
         {
-            return "1.0.1";
+            return "1.0.2";
         }
     }
 }
