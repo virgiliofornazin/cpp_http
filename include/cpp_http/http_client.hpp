@@ -235,10 +235,10 @@ namespace cpp_http
 
             auto resolved = _resolver.resolve(_uri_host, _uri_port_resolve);
 
-            before_execute(request);
-
             _http_host_string = impl::ssl_sni_host_string(_uri_protocol_is_secure, _uri_host, _uri_port);
             _http_target_string = impl::to_beast_http_request(_http_request, request, *this);
+
+            before_execute(request, _http_target_string);
 
             debug_info([&]() { return cpp_http_format::format("http sync request:\n{}", request.to_string(_uri_path)); });
                     
@@ -369,9 +369,9 @@ namespace cpp_http
                             return;
                         }
 
-                        before_execute(*request_ptr.get());
-
                         _http_target_string = impl::to_beast_http_request(_http_request, *request_ptr.get(), *this);
+
+                        before_execute(*request_ptr.get(), _http_target_string);
 
                         debug_info([&]() { return cpp_http_format::format("http{} async request:\n{}", (_uri_protocol_is_secure ? "s" : ""), request_ptr->to_string(_uri_path)); });
 

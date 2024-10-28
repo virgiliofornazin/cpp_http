@@ -38,7 +38,7 @@ namespace cpp_http
             bool _connection_in_progress = false;
             bool _assume_connected_on_transport_connection_succeeded = true;
             std::string _http_host_string;
-            std::string _http_target_string;            
+            std::string _http_target_string;
             std::string _user_agent;
             std::string _uri;
             bool _uri_protocol_is_secure = false;
@@ -68,7 +68,7 @@ namespace cpp_http
             }
             
         protected:
-            virtual void before_execute(http_request& request /* info */)
+            virtual void before_execute(http_request& request /* info */, std::string const& /* final_http_target_string */)
             {
             }
             
