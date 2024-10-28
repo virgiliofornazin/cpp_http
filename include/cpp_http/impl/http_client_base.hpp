@@ -64,12 +64,7 @@ namespace cpp_http
             {
                 auto tcp_stream = beast_tcp_stream();
 
-                if (tcp_stream)
-                {
-                    return std::addressof(tcp_stream->socket());
-                }
-
-                return nullptr;
+                return tcp_stream ? std::addressof(tcp_stream->socket()) : nullptr;
             }
             
         protected:

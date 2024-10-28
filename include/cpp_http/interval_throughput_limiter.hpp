@@ -32,10 +32,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "impl/config.hpp"
+#include "impl/diagnostics.inl"
 
 namespace cpp_http
 {
-    class throughput_limiter
+    class interval_throughput_limiter
     {
     private:
         std::chrono::milliseconds _interval_milliseconds;
@@ -67,17 +68,21 @@ namespace cpp_http
 
             auto now = cpp_http::timeout_clock::now();
             auto current_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
-            auto result = _interval_milliseconds.count() < current_interval.count();
+            auto outside_throttle_interval = _interval_milliseconds.count() < current_interval.count();
 
-            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "throughput_limiter::do_test_and[" << this << "] -> current_interval: " 
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_test_and[" << this << "] -> current_interval: " 
                 << current_interval.count() << ", _interval_milliseconds: " << _interval_milliseconds.count(); return ss.str(); });
 
-            if (result)
+            auto result = false;
+
+            if (outside_throttle_interval)
             {
                 if (set_if_true)
                 {
                     do_clear(now, false);
                 }
+
+                result = true;
             }
             else
             {
@@ -94,10 +99,40 @@ namespace cpp_http
                 }
             }
 
-            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "throughput_limiter::do_test_and[" << this << "] -> _total_throughput: " 
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_test_and[" << this << "] -> _total_throughput: " 
                 << _total_throughput << ", _current_interval_throughput: " << _current_interval_throughput; return ss.str(); });
 
             return !result;
+        }
+
+        void do_pop()
+        {
+            if (!is_throughput_limit_per_interval_set())
+            {
+                return;
+            }
+
+            auto now = cpp_http::timeout_clock::now();
+            auto current_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
+            auto outside_throttle_interval = _interval_milliseconds.count() < current_interval.count();
+
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_pop[" << this << "] -> current_interval: " 
+                << current_interval.count() << ", _interval_milliseconds: " << _interval_milliseconds.count(); return ss.str(); });
+
+            if (outside_throttle_interval)
+            {
+                _current_interval_throughput = 0;
+                
+                return;
+            }
+
+            if (_current_interval_throughput > 0)
+            {
+                --_current_interval_throughput;
+            }
+
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_pop[" << this << "] -> _total_throughput: " 
+                << _total_throughput << ", _current_interval_throughput: " << _current_interval_throughput; return ss.str(); });
         }
 
         void do_fill()
@@ -109,33 +144,33 @@ namespace cpp_http
 
             auto now = cpp_http::timeout_clock::now();
             auto current_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
-            auto result = _interval_milliseconds.count() < current_interval.count();
+            auto outside_throttle_interval = _interval_milliseconds.count() < current_interval.count();
 
-            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "throughput_limiter::do_test_and[" << this << "] -> current_interval: " 
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_fill[" << this << "] -> current_interval: " 
                 << current_interval.count() << ", _interval_milliseconds: " << _interval_milliseconds.count(); return ss.str(); });
             
-            if (result)
+            if (outside_throttle_interval)
             {
                 _current_interval_started_at = now;
             }
 
             _current_interval_throughput = _throughput_limit_per_interval;
 
-            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "throughput_limiter::do_test_and[" << this << "] -> _total_throughput: " 
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_fill[" << this << "] -> _total_throughput: " 
                 << _total_throughput << ", _current_interval_throughput: " << _current_interval_throughput; return ss.str(); });
         }
     
     public:
-        throughput_limiter() = default;
+        interval_throughput_limiter() = default;
         
-        throughput_limiter(throughput_limiter const&) = default;
-        throughput_limiter(throughput_limiter&&) = default;
+        interval_throughput_limiter(interval_throughput_limiter const&) = default;
+        interval_throughput_limiter(interval_throughput_limiter&&) = default;
 
-        throughput_limiter& operator = (throughput_limiter const&) = default;
-        throughput_limiter& operator = (throughput_limiter&&) = default;
+        interval_throughput_limiter& operator = (interval_throughput_limiter const&) = default;
+        interval_throughput_limiter& operator = (interval_throughput_limiter&&) = default;
 
         template <typename duration_type>
-        explicit throughput_limiter(size_t const throughput_limit_per_interval, duration_type const interval = std::chrono::duration_cast<duration_type>(std::chrono::seconds(1)))
+        explicit interval_throughput_limiter(size_t const throughput_limit_per_interval, duration_type const interval = std::chrono::duration_cast<duration_type>(std::chrono::seconds(1)))
             : _interval_milliseconds(std::chrono::duration_cast<std::chrono::milliseconds>(interval)), _throughput_limit_per_interval(throughput_limit_per_interval)
         {
         }
@@ -179,6 +214,11 @@ namespace cpp_http
         bool test_and_set()
         {
             return do_test_and(true);
+        }
+
+        void pop()
+        {
+            do_pop();
         }
 
         void fill()

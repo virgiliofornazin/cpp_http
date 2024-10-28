@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "impl/config.hpp"
 #include "impl/http_client_base.hpp"
-#include "throughput_limiter.hpp"
+#include "interval_throughput_limiter.hpp"
 #include "http_query_string.hpp"
 #include "websocket_message.hpp"
 #include "websocket_client_event.hpp"
@@ -55,6 +55,7 @@ namespace cpp_http
         using authentication_request_message_generator = std::function<std::string()>;
         using authentication_response_message_handler = std::function<bool(std::string_view const, std::string&)>;
         using heartbeat_request_message_generator = std::function<std::string()>;
+        using custom_throughput_limiter_handler = std::function<bool(websocket_message const&)>;
 
     protected:
         boost::beast::websocket::stream<boost::beast::tcp_stream> _ws_stream;
@@ -71,13 +72,14 @@ namespace cpp_http
         std::mutex _websocket_send_queue_mutex;
 #ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
         std::array<std::deque<websocket_message>, websocket_message_priority_count> _websocket_send_queues;
-        std::array<throughput_limiter, websocket_message_priority_count> _websocket_send_queue_throughput_limiters;
+        std::array<interval_throughput_limiter, websocket_message_priority_count> _websocket_send_queue_throughput_limiters;
         bool _use_unique_websocket_send_queue_throughput_limiter = false;
 #endif /* CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES */
 #ifdef CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES
         std::priority_queue<websocket_message> _websocket_send_queue;
 #endif /* CPP_HTTP_WEBSOCKET_UNIQUE_PRIORITY_SEND_QUEUES */
-        throughput_limiter _websocket_send_queue_throughput_limiter;
+        interval_throughput_limiter _websocket_send_queue_throughput_limiter;
+        custom_throughput_limiter_handler _custom_throughput_limiter_handler;
         event_callback _callback;
         bool _authenticated = false;
         authentication_request_message_generator _authentication_request_message_generator;
@@ -558,21 +560,22 @@ namespace cpp_http
         }
 
         template <typename queue_type>
-        std::optional<websocket_message> do_get_next_pending_message_from_queue(queue_type& queue, throughput_limiter& limit)
+        std::optional<websocket_message> do_get_next_pending_message_from_queue(queue_type& queue, interval_throughput_limiter& limit)
         {
             if (queue.empty())
             {
                 return {};
             }
 
-            auto throttle = limit.test_and_set();
-
+            auto& message = queue.front();
+            auto throttle = _custom_throughput_limiter_handler ?_custom_throughput_limiter_handler(message) : limit.test_and_set();
+            
             if (throttle)
             {
                 return {};
             }
 
-            auto result = std::move(queue.front());
+            auto result = std::move(message);
 
             queue.pop_front();
 
@@ -849,6 +852,16 @@ namespace cpp_http
 
             _heartbeat_interval = {};
             _heartbeat_request_message_generator = {};
+        }
+
+        void set_custom_throughput_limiter_handler(custom_throughput_limiter_handler throughput_limiter_handler)
+        {
+            _custom_throughput_limiter_handler = throughput_limiter_handler;
+        }
+
+        void reset_custom_throughput_limiter_handler()
+        {
+            _custom_throughput_limiter_handler = {};
         }
         
 #ifdef CPP_HTTP_WEBSOCKET_SEPARATED_PRIORITY_SEND_QUEUES
