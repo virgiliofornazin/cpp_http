@@ -105,7 +105,7 @@ namespace cpp_http
             return !result;
         }
 
-        void do_pop()
+        void do_unset()
         {
             if (!is_throughput_limit_per_interval_set())
             {
@@ -216,9 +216,9 @@ namespace cpp_http
             return do_test_and(true);
         }
 
-        void pop()
+        void unset()
         {
-            do_pop();
+            do_unset();
         }
 
         void fill()

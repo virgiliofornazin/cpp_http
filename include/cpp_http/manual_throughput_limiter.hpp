@@ -81,7 +81,7 @@ namespace cpp_http
             return !result;
         }
 
-        void do_pop()
+        void do_unset()
         {
             if (!is_throughput_limit_per_interval_set())
             {
@@ -119,9 +119,22 @@ namespace cpp_http
         manual_throughput_limiter& operator = (manual_throughput_limiter const&) = default;
         manual_throughput_limiter& operator = (manual_throughput_limiter&&) = default;
 
+        explicit manual_throughput_limiter(size_t const throughput_limit_per_interval, size_t const current_interval_throughput)
+            : _throughput_limit_per_interval(throughput_limit_per_interval), _current_interval_throughput(current_interval_throughput)
+        {
+        }
+
         explicit manual_throughput_limiter(size_t const throughput_limit_per_interval)
             : _throughput_limit_per_interval(throughput_limit_per_interval)
         {
+        }
+        
+        void set_throughput_limit_manually_per_interval(size_t const throughput_limit_per_interval,
+            size_t const current_interval_throughput, bool const reset_total = false)
+        {
+            set_throughput_limit_per_interval(throughput_limit_per_interval, false, true);
+            
+            _current_interval_throughput = current_interval_throughput;
         }
 
         void set_throughput_limit_per_interval(size_t const throughput_limit_per_interval,
@@ -162,9 +175,9 @@ namespace cpp_http
             return do_test_and(true);
         }
 
-        void pop()
+        void unset()
         {
-            do_pop();
+            do_unset();
         }
 
         void fill()
