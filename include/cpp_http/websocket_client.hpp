@@ -53,7 +53,7 @@ namespace cpp_http
     public:
         using event_callback = std::function<void(websocket_client_event const, std::string_view const)>;
         using authentication_request_message_generator = std::function<std::string()>;
-        using authentication_response_message_handler = std::function<bool(std::string_view const)>;
+        using authentication_response_message_handler = std::function<bool(std::string_view const, std::string&)>;
         using heartbeat_request_message_generator = std::function<std::string()>;
 
     protected:
@@ -213,11 +213,13 @@ namespace cpp_http
                         {
                             if (has_authentication_handlers())
                             {
-                                auto authentication_result = _authentication_response_message_handler(message_received);
+                                std::string authentication_error_message;
+
+                                auto authentication_result = _authentication_response_message_handler(message_received, authentication_error_message);
 
                                 if (!authentication_result)
                                 {
-                                    _callback(websocket_client_event::authentication_error, cpp_http_format::format("websocket authentication error to [{}{}], authentication resoponse validation failed", _http_host_string, _http_target_string));
+                                    _callback(websocket_client_event::authentication_error, cpp_http_format::format("websocket authentication error to [{}{}], authentication resoponse validation failed: {}", _http_host_string, _http_target_string, authentication_error_message));
 
                                     disconnect();
 

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "config.hpp"
+#include <type_traits>
 
 namespace cpp_http
 {
@@ -49,51 +50,71 @@ namespace cpp_http
         }
 
         template <typename base_type>
-        inline std::shared_ptr<base_type> shared_from_base_type(std::enable_shared_from_this<base_type>* base) 
+        static inline std::shared_ptr<base_type> shared_from_base_type(std::enable_shared_from_this<base_type>* base) 
         {
-            return base->shared_from_this();
+            auto result = base->shared_from_this();
+
+            return result;
         }
 
         template <typename base_type>
-        inline std::shared_ptr<const base_type> shared_from_base_type(std::enable_shared_from_this<base_type> const* base) 
+        static inline std::shared_ptr<const base_type> shared_from_base_type(std::enable_shared_from_this<base_type> const* base) 
         {
-            return base->shared_from_this();
+            auto result = base->shared_from_this();
+
+            return result;
         }
 
-        template <typename returning_type, typename current_type>
-        inline std::shared_ptr<returning_type> shared_from(current_type* current) 
+        template <typename returning_type, typename current_type, 
+            typename result_type = std::enable_if_t<!std::is_same_v<returning_type, current_type>, returning_type>>
+        static inline std::shared_ptr<result_type> shared_from(current_type* current) 
         {
-            return std::dynamic_pointer_cast<returning_type>(shared_from_base_type(current));
+            auto current_ptr = shared_from_base_type(current);
+            auto result = std::dynamic_pointer_cast<returning_type>(current_ptr);
+
+            return result;
         }
 
         template <typename current_type>
-        inline std::shared_ptr<current_type> shared_from(current_type* current) 
+        static inline std::shared_ptr<current_type> shared_from(current_type* current) 
         {
-            return std::dynamic_pointer_cast<current_type>(shared_from_base_type(current));
+            auto current_ptr = shared_from_base_type(current);
+            auto result = std::dynamic_pointer_cast<current_type>(current_ptr);
+
+            return result;
         }
 
         template <typename base_type>
-        inline std::weak_ptr<base_type> weak_from_base_type(std::enable_shared_from_this<base_type>* base) 
+        static inline std::weak_ptr<base_type> weak_from_base_type(std::enable_shared_from_this<base_type>* base) 
         {
-            return base->weak_from_this();
+            auto result = base->weak_from_this();
+
+            return result;
         }
 
         template <typename base_type>
-        inline std::weak_ptr<const base_type> weak_from_base_type(std::enable_shared_from_this<base_type> const* base) 
+        static inline std::weak_ptr<const base_type> weak_from_base_type(std::enable_shared_from_this<base_type> const* base) 
         {
-            return base->weak_from_this();
+            auto result = base->weak_from_this();
+
+            return result;
         }
 
-        template <typename returning_type, typename current_type>
-        inline std::weak_ptr<returning_type> weak_from(current_type* current) 
+        template <typename returning_type, typename current_type, 
+            typename result_type = std::enable_if_t<!std::is_same_v<returning_type, current_type>, returning_type>>
+        static inline std::weak_ptr<result_type> weak_from(current_type* current) 
         {
-            return std::dynamic_pointer_cast<returning_type>(weak_from_base_type(current).lock());
+            auto result = shared_from<returning_type, current_type>(current);
+
+            return result;
         }
 
         template <typename current_type>
-        inline std::weak_ptr<current_type> weak_from(current_type* current) 
+        static inline std::weak_ptr<current_type> weak_from(current_type* current) 
         {
-            return std::dynamic_pointer_cast<current_type>(weak_from_base_type(current).lock());
+            auto result = shared_from<current_type>(current);
+
+            return result;
         }
     }
 }
