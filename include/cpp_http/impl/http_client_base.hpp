@@ -68,7 +68,11 @@ namespace cpp_http
             }
             
         protected:
-            virtual void before_execute(http_request& request /* info */, std::string const& /* final_http_target_string */)
+            virtual void before_execute(http_request& /* request */, std::string const& /* final_http_target_string */)
+            {
+            }
+            
+            virtual void after_execute(http_response& /* response */, http_request const& /* request */, std::string const& /* final_http_target_string */)
             {
             }
             

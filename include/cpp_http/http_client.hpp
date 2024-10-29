@@ -63,7 +63,7 @@ namespace cpp_http
             
     protected:
         template <typename http_stream_type, typename duration_type, typename callback_type>
-        void do_execute_http_request(http_stream_type& http_stream, duration_type const& timeout_interval, std::shared_ptr<cpp_http::atomic_flag>& callback_called, callback_type& callback)
+        void do_execute_http_request(http_stream_type& http_stream, duration_type const& timeout_interval, std::shared_ptr<cpp_http::atomic_flag>& callback_called, http_request::shared_ptr request_ptr, callback_type& callback)
         {
             if (!_connected)
             {
@@ -73,7 +73,7 @@ namespace cpp_http
             auto self = shared_from_this();
 
             _strand.dispatch(
-                [this, self, &http_stream, callback_called, callback]
+                [this, self, &http_stream, callback_called, request_ptr, callback]
                 ()
                     {
                         if (!_connected)
@@ -82,7 +82,7 @@ namespace cpp_http
                         }
 
                         boost::beast::http::async_write(http_stream, _http_request, cpp_http_asio::bind_executor(_strand, 
-                            [this, self, &http_stream, callback_called, callback]
+                            [this, self, &http_stream, callback_called, request_ptr, callback]
                             (boost::beast::error_code ec, size_t bytes_transferred) mutable
                                 {
                                     cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "beast::async_write(http), ec: " << ec; return ss.str(); });
@@ -109,7 +109,7 @@ namespace cpp_http
                                     }
 
                                     boost::beast::http::async_read(http_stream, _flat_buffer, _http_response, cpp_http_asio::bind_executor(_strand, 
-                                        [this, self, callback_called, callback]
+                                        [this, self, callback_called, request_ptr, callback]
                                         (boost::beast::error_code ec, size_t bytes_transferred) mutable
                                             {
                                                 cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "beast::async_read(http), ec: " << ec; return ss.str(); });
@@ -133,6 +133,8 @@ namespace cpp_http
                                                 auto response_ptr = std::make_shared<http_response>();
                                                 
                                                 impl::from_beast_http_response(*response_ptr.get(), _http_response);
+
+                                                after_execute(*response_ptr.get(), *request_ptr.get(), _http_target_string);
 
                                                 debug_info([&]() { return cpp_http_format::format("http{} async response received:\n{}", (_uri_protocol_is_secure ? "s" : ""), response_ptr->to_string()); });
 
@@ -277,6 +279,8 @@ namespace cpp_http
             
             impl::from_beast_http_response(response, _http_response);
 
+            after_execute(response, request, _http_target_string);
+
             debug_info([&]() { return cpp_http_format::format("http sync response received:\n{}", response.to_string()); });
 
             return response;
@@ -377,11 +381,11 @@ namespace cpp_http
 
                         if (_uri_protocol_is_secure)
                         {
-                            do_execute_http_request(_https_stream, timeout_interval, callback_called, callback);
+                            do_execute_http_request(_https_stream, timeout_interval, callback_called, request_ptr, callback);
                         }
                         else
                         {
-                            do_execute_http_request(_http_stream, timeout_interval, callback_called, callback);
+                            do_execute_http_request(_http_stream, timeout_interval, callback_called, request_ptr, callback);
                         }
                     }));
         }
