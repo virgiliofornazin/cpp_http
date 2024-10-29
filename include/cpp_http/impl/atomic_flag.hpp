@@ -1,5 +1,5 @@
 /*
-cpp_http library version 1.0.4
+cpp_http library version 1.0.5
 
 Copyright (c) 2024, Virgilio Alexandre Fornazin
 
