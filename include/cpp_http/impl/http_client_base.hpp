@@ -293,6 +293,26 @@ namespace cpp_http
                     });
             }
             
+            void do_close_asio_tcp_socket() noexcept
+            {
+                auto tcp_socket = asio_tcp_socket();
+
+                if (tcp_socket)
+                {
+                    try
+                    {
+                        boost::system::error_code ec;
+                        
+                        tcp_socket->cancel(ec);
+                        tcp_socket->shutdown(cpp_http_asio::ip::tcp::socket::shutdown_both, ec);
+                        tcp_socket->close(ec);
+                    }
+                    catch (std::exception const&)
+                    {
+                    }
+                }
+            }
+            
             void do_shutdown_beast_tcp_stream() noexcept
             {
                 auto tcp_stream = beast_tcp_stream();
@@ -301,7 +321,7 @@ namespace cpp_http
                 {
                     try
                     {
-                        tcp_stream->expires_after(std::chrono::milliseconds(0));
+                        tcp_stream->expires_never();
                     }
                     catch (std::exception const&)
                     {
@@ -325,25 +345,6 @@ namespace cpp_http
                     {
                     }
                 }                
-            }
-            
-            void do_close_asio_tcp_socket() noexcept
-            {
-                auto tcp_socket = asio_tcp_socket();
-
-                if (tcp_socket)
-                {
-                    try
-                    {
-                        boost::system::error_code ec;
-                        
-                        tcp_socket->shutdown(cpp_http_asio::ip::tcp::socket::shutdown_both, ec);
-                        tcp_socket->close(ec);
-                    }
-                    catch (std::exception const&)
-                    {
-                    }
-                }
             }
             
         public:
@@ -538,13 +539,14 @@ namespace cpp_http
                 
                 std::swap(_connected, connected);
                 
+                do_close_asio_tcp_socket();
+
                 if (connected)
                 {
                     do_shutdown_beast_tcp_stream();
                 }
 
                 do_close_asio_ssl_stream();
-                do_close_asio_tcp_socket();
             }
         };
     }
