@@ -93,7 +93,7 @@ namespace cpp_http
                 --_current_interval_throughput;
             }
 
-            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "manual_throughput_limiter::do_pop[" << this << "] -> _total_throughput: " 
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "manual_throughput_limiter::do_unset[" << this << "] -> _total_throughput: " 
                 << _total_throughput << ", _current_interval_throughput: " << _current_interval_throughput; return ss.str(); });
         }
 

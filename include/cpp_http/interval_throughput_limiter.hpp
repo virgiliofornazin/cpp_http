@@ -116,7 +116,7 @@ namespace cpp_http
             auto current_interval = std::chrono::duration_cast<std::chrono::milliseconds>(now - _current_interval_started_at);
             auto outside_throttle_interval = _interval_milliseconds.count() < current_interval.count();
 
-            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_pop[" << this << "] -> current_interval: " 
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_unset[" << this << "] -> current_interval: " 
                 << current_interval.count() << ", _interval_milliseconds: " << _interval_milliseconds.count(); return ss.str(); });
 
             if (outside_throttle_interval)
@@ -131,7 +131,7 @@ namespace cpp_http
                 --_current_interval_throughput;
             }
 
-            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_pop[" << this << "] -> _total_throughput: " 
+            cpp_hpp_diagnostic_trace([&]() { std::stringstream ss; ss << "interval_throughput_limiter::do_unset[" << this << "] -> _total_throughput: " 
                 << _total_throughput << ", _current_interval_throughput: " << _current_interval_throughput; return ss.str(); });
         }
 
